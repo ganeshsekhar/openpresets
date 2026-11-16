@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenPresets Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/ui/style.css" />
+  </head>
+  <body>
+    <aside class="side">
+      <div class="brand">Open<i>Presets</i> <span>Studio</span></div>
+      <nav>
+        <a class="on" href="#refs">References</a>
+        <span class="soon">Categorize <small>M2</small></span>
+        <span class="soon">Batches <small>M3</small></span>
+        <span class="soon">Review <small>M3</small></span>
+        <span class="soon">Presets <small>M4</small></span>
+      </nav>
+      <p class="side-foot">Local only · never deployed</p>
+    </aside>
+
+    <main>
+      <header class="top">
+        <div>
+          <h1>References</h1>
+          <p class="muted" id="stats">Loading…</p>
+        </div>
+        <button class="btn primary" id="import" type="button">Import from folder</button>
+      </header>
+
+      <div class="bar">
+        <select id="film" aria-label="Filter by film"><option value="">All films</option></select>
+        <label class="check"><input type="checkbox" id="show-excluded" /> Show excluded</label>
+        <span class="grow"></span>
+        <span class="muted small" id="folder"></span>
+      </div>
+
+      <div id="content"></div>
+    </main>
+
+    <div class="lightbox" id="lightbox" hidden>
+      <button class="lb-close" type="button" data-lb="close" aria-label="Close">×</button>
+      <button class="lb-nav prev" type="button" data-lb="prev" aria-label="Previous">‹</button>
+      <img id="lb-img" alt="" />
+      <button class="lb-nav next" type="button" data-lb="next" aria-label="Next">›</button>
+      <div class="lb-info">
+        <div><b id="lb-title"></b> <span class="muted" id="lb-meta"></span></div>
+        <div class="lb-actions">
+          <a id="lb-source" target="_blank" rel="noopener">Source</a>
+          <button class="btn" type="button" data-lb="exclude" id="lb-exclude">Exclude</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

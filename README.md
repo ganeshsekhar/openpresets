@@ -15,6 +15,16 @@ npm test         # XMP generator tests
 npm run build    # static output in dist/
 ```
 
+## Studio (local admin, never deployed)
+
+```bash
+npm --prefix studio install   # once
+npm run studio                # http://127.0.0.1:4317
+```
+
+Put reference stills in `~/OpenPresets-data/refs/<film-name>/` and click **Import from folder**.
+Everything Studio stores lives in `~/OpenPresets-data/`, outside this repo. See `docs/studio-plan.md`.
+
 ## Data format
 
 One row per preset. Meta columns:

@@ -1,0 +1,21 @@
+{
+  "name": "openpresets-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenPresets Studio: local admin dashboard (never deployed).",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server/main.ts",
+    "test": "vitest run --root ."
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  }
+}

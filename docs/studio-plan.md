@@ -4,7 +4,7 @@ The local admin dashboard plus the agents that turn film stills into presets.
 Runs on the owner's Mac (later the Mac mini). Never deployed. Everything is
 started by a button; nothing runs on a schedule.
 
-Status: planned, not built. Decisions below were made with the owner on
+Status: M1 built (References). M2+ planned. Decisions below were made with the owner on
 2026-11-16.
 
 ## Decisions
@@ -41,7 +41,11 @@ A **Stop** button halts any running step; finished work is kept.
 
 ## Pieces
 
-### 1. Scraper (no AI)
+### 1. Scraper (no AI) — replaced for now
+
+The owner downloads stills manually into `~/OpenPresets-data/refs/<film>/`.
+Studio imports whatever is there. The notes below apply only if a scraper is
+added later.
 
 - **film-grab only, per picked film.** Reads the Films A–Z index once to list
   films. The owner ticks films in Studio; the scraper fetches only those film
@@ -147,8 +151,11 @@ placeholder presets into Studio.
 
 ## Build order
 
-1. **M1 — Studio skeleton + Sources:** server, DB, UI shell, film-grab index,
-   pick films, polite fetch.
+1. **M1 — Studio skeleton + References (done):** local server, SQLite DB, UI
+   shell, import from `~/OpenPresets-data/refs/` (one folder per film, optional
+   `.json` info), dedupe by hash, thumbnails, moved/missing tracking, References
+   screen with exclude and a full-size viewer. The owner downloads stills
+   manually; no scraper.
 2. **M2 — Analysis + categorizer:** code analysis, rules, clustering, Claude
    contact sheets, References screen.
 3. **M3 — Renderer + style agent + Review:** test photo set, renderer, batch
