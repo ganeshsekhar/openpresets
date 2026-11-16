@@ -105,6 +105,15 @@ A checkbox alone is not enough. Uploads are only safe with all of these:
 7. **Moderation queue at launch.** New uploaders' presets go live only after
    review, until there's enough trust/volume data to relax it.
 
+## Approved sources (decided 2026-11-16)
+
+| Site | Status | How |
+|---|---|---|
+| film-grab.com | Allowed, **picked films only** | robots.txt allows crawling and there is no terms page, but the owner publicly objects to bots and scraping, so no full-site crawl. One owner-picked film at a time, slow (>= 3 s per image), via Studio or `studio/tools/filmgrab-console.js`. Stills are local references only; film titles and credits never reach preset names or site copy. Emailing the owner for permission is recommended. |
+| frameset.app | **Off-limits** for automated access | Returns 403 to automated clients and disallows `/api/` in robots.txt. No scraper, no console script, no API calls from a logged-in browser. |
+
+Before adding any new source: read its robots.txt and terms, note the result here.
+
 ## Notes and caveats
 
 - *hiQ v. LinkedIn* mainly settled that scraping public pages isn't
