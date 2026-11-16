@@ -1,24 +1,6 @@
-/*
- * OpenPresets — save 5 random stills from one film-grab.com film as local references.
- *
- * How to use
- *   1. Open ONE film page you picked, e.g. https://film-grab.com/2026/11/16/fantasia/
- *   2. Open the browser console (Cmd+Option+J in Chrome), paste this whole file, press Enter.
- *   3. Allow "download multiple files" if the browser asks.
- *   4. Files land in your Downloads folder: 5 random stills named by their gallery number
- *      (e.g. <film>_07.jpg, <film>_23.jpg …) plus <film>.json (film info + sources).
- *      Move them to ~/OpenPresets-data/refs/film-grab/<film>/ (Studio will import from there).
- *   Stop at any time:  window.__opStop = true
- *
- * Rules (docs/legal-protocol.md + docs/studio-plan.md)
- *   - Picked films only, one film per run. Never loop over the whole site.
- *   - Slow: one image every DELAY_MS. Do not lower it below 3 seconds.
- *   - Stills are LOCAL REFERENCES ONLY: never publish, share, or commit them.
- *     Film titles and credits never go into preset names or site copy.
- */
 (async () => {
-  const PER_FILM = 5; // random stills to take from this film
-  const DELAY_MS = 3500; // polite pace; keep >= 3000
+  const PER_FILM = 5;
+  const DELAY_MS = 3500;
 
   if (!/(^|\.)film-grab\.com$/.test(location.hostname)) {
     console.warn("[OpenPresets] Run this on a film-grab.com film page.");
@@ -26,7 +8,6 @@
   }
   window.__opStop = false;
 
-  // --- film info -----------------------------------------------------------
   const title = (document.querySelector("h1")?.innerText || document.title).trim();
   const slug =
     location.pathname.split("/").filter(Boolean).pop() ||
@@ -38,7 +19,6 @@
     if (m && m[1].length < 40) meta[m[1].trim()] = m[2].trim();
   }
 
-  // --- full-size stills (skip thumbnails, dedupe cache-busting query) -------
   const seen = new Set();
   const urls = [];
   for (const a of document.querySelectorAll('a[href*="/wp-content/uploads/photo-gallery/"]')) {
@@ -53,7 +33,6 @@
     console.warn("[OpenPresets] No gallery stills found on this page.");
     return;
   }
-  // Pick PER_FILM random stills; keep their original gallery numbers.
   const order = urls.map((_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -73,7 +52,6 @@
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // --- download one at a time ----------------------------------------------
   const files = [];
   for (let k = 0; k < picks.length; k++) {
     if (window.__opStop) {
@@ -100,7 +78,6 @@
     if (k < picks.length - 1) await sleep(DELAY_MS);
   }
 
-  // --- provenance file ------------------------------------------------------
   const record = {
     site: "film-grab.com",
     page: location.href.split("#")[0],
