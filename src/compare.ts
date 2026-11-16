@@ -2,103 +2,115 @@ import type { Preset } from "./data";
 import { previewStyle } from "./preview";
 import { esc } from "./util";
 
-/** Markup for a before/after slider. `href` makes a tap (not a drag) open the preset. */
-export function compareHTML(p: Preset, opts: { href?: string; eager?: boolean } = {}): string {
-  const loading = opts.eager ? "eager" : "lazy";
+type ImgOpts = { eager?: boolean };
+
+const loading = (o: ImgOpts) => (o.eager ? "eager" : "lazy");
+
+/** The "after" layer: a real export if we have one, else a CSS approximation of the settings. */
+export function afterLayer(p: Preset, o: ImgOpts = {}): string {
   const alt = esc(p.name);
-  let after: string;
   if (p.afterUrl) {
-    after = `<img src="${esc(p.afterUrl)}" alt="${alt}, after" loading="${loading}" decoding="async">`;
-  } else {
-    const s = previewStyle(p.settings);
-    const fade = Math.round(s.fade * 255);
-    after = `<img src="${esc(p.beforeUrl)}" alt="${alt}, after (approximate preview)" loading="${loading}" decoding="async" style="filter:${s.filter}">
-      ${s.fade > 0 ? `<div class="compare-fade" style="background:rgb(${fade},${fade},${fade})"></div>` : ""}
-      ${s.tint ? `<div class="compare-tint" style="background:${s.tint}"></div>` : ""}
-      ${s.vignette > 0 ? `<div class="compare-vignette" style="opacity:${s.vignette.toFixed(2)}"></div>` : ""}`;
+    return `<div class="lyr after"><img src="${esc(p.afterUrl)}" alt="${alt}, after" loading="${loading(o)}" decoding="async"></div>`;
   }
-  return `<div class="compare"${opts.href ? ` data-href="${esc(opts.href)}"` : ""}>
-    <img src="${esc(p.beforeUrl)}" alt="${alt}, before" loading="${loading}" decoding="async">
-    <div class="compare-after">${after}</div>
-    <div class="compare-handle"></div>
-    <span class="compare-label before">Before</span><span class="compare-label after">After</span>
-    <input class="compare-range" type="range" min="0" max="100" value="50" aria-label="Before and after comparison for ${alt}">
+  const s = previewStyle(p.settings);
+  const fade = Math.round(s.fade * 255);
+  return `<div class="lyr after">
+    <img src="${esc(p.beforeUrl)}" alt="${alt}, after (approximate preview)" loading="${loading(o)}" decoding="async" style="filter:${s.filter}">
+    ${s.fade > 0 ? `<div class="lyr-fade" style="background:rgb(${fade},${fade},${fade})"></div>` : ""}
+    ${s.tint ? `<div class="lyr-tint" style="background:${s.tint}"></div>` : ""}
+    ${s.vignette > 0 ? `<div class="lyr-vignette" style="opacity:${s.vignette.toFixed(2)}"></div>` : ""}
   </div>`;
 }
 
-function setPos(el: HTMLElement, pct: number) {
+export function beforeLayer(p: Preset, o: ImgOpts = {}): string {
+  return `<img class="lyr before" src="${esc(p.beforeUrl)}" alt="${esc(p.name)}, before" loading="${loading(o)}" decoding="async">`;
+}
+
+export const layers = (p: Preset, o: ImgOpts = {}) => beforeLayer(p, o) + afterLayer(p, o);
+
+/** Large draggable comparison (detail page and focus stage). */
+export function compareHTML(p: Preset, o: ImgOpts = {}): string {
+  return `<div class="compare" data-compare>
+    ${layers(p, o)}
+    <span class="handle"></span>
+    <span class="tag l">Before</span><span class="tag r">After</span>
+    <input class="compare-range" type="range" min="0" max="100" value="50" aria-label="Before and after comparison for ${esc(p.name)}">
+  </div>`;
+}
+
+function setSplit(el: HTMLElement, pct: number) {
   const v = Math.max(0, Math.min(100, pct));
-  el.style.setProperty("--pos", `${v}%`);
-  const range = el.querySelector<HTMLInputElement>(".compare-range");
-  if (range) range.value = String(Math.round(v));
+  el.style.setProperty("--split", `${v}%`);
+  const r = el.querySelector<HTMLInputElement>(".compare-range");
+  if (r) r.value = String(Math.round(v));
 }
-
-function pctFromEvent(el: HTMLElement, e: PointerEvent) {
+const pctAt = (el: HTMLElement, x: number) => {
   const r = el.getBoundingClientRect();
-  return ((e.clientX - r.left) / r.width) * 100;
-}
+  return ((x - r.left) / r.width) * 100;
+};
 
-/** One set of delegated listeners handles every slider on the page. */
-export function initCompare(onNavigate: (href: string) => void) {
-  let active: HTMLElement | null = null;
-  let startX = 0;
-  let dragging = false;
+/** Delegated pointer handling for every comparison surface on the page. */
+export function initCompare() {
+  let dragging: HTMLElement | null = null;
 
   document.addEventListener("pointerdown", (e) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>(".compare");
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-compare]");
     if (!el || e.button !== 0) return;
-    active = el;
-    startX = e.clientX;
-    dragging = false;
-    // Large view: jump straight to the pointer. Cards wait for a drag so taps can open them.
-    if (!el.dataset.href) {
-      dragging = true;
-      setPos(el, pctFromEvent(el, e));
-    }
+    dragging = el;
+    el.setPointerCapture?.(e.pointerId);
+    setSplit(el, pctAt(el, e.clientX));
   });
-
   document.addEventListener("pointermove", (e) => {
-    if (active) {
-      if (!dragging && Math.abs(e.clientX - startX) > 6) {
-        dragging = true;
-        active.setPointerCapture?.(e.pointerId);
-      }
-      if (dragging) setPos(active, pctFromEvent(active, e));
+    if (dragging) {
+      setSplit(dragging, pctAt(dragging, e.clientX));
       return;
     }
-    // Desktop hover preview on cards.
-    if (e.pointerType === "mouse") {
-      const el = (e.target as HTMLElement).closest<HTMLElement>(".compare[data-href]");
-      if (el) setPos(el, pctFromEvent(el, e));
-    }
+    if (e.pointerType !== "mouse") return;
+    // Grid thumbnails: the cursor reveals "before" to its left.
+    const ba = (e.target as HTMLElement).closest?.<HTMLElement>(".ba");
+    if (ba) setSplit(ba, pctAt(ba, e.clientX));
   });
-
-  const end = () => {
-    if (active && !dragging && active.dataset.href) onNavigate(active.dataset.href);
-    active = null;
-    dragging = false;
-  };
-  document.addEventListener("pointerup", end);
-  document.addEventListener("pointercancel", () => {
-    active = null;
-    dragging = false;
-  });
-
+  const stop = () => (dragging = null);
+  document.addEventListener("pointerup", stop);
+  document.addEventListener("pointercancel", stop);
   document.addEventListener(
     "pointerleave",
     (e) => {
       const el = e.target as HTMLElement;
-      if (el instanceof HTMLElement && el.matches?.(".compare[data-href]") && !active) setPos(el, 50);
+      if (el instanceof HTMLElement && el.classList?.contains("ba")) setSplit(el, 0);
     },
     true,
   );
-
-  // Keyboard: the hidden range input drives the slider.
   document.addEventListener("input", (e) => {
-    const t = e.target as HTMLElement;
-    if (t.classList.contains("compare-range")) {
-      const el = t.closest<HTMLElement>(".compare");
-      if (el) setPos(el, Number((t as HTMLInputElement).value));
+    const t = e.target as HTMLInputElement;
+    if (t.classList?.contains("compare-range")) {
+      const el = t.closest<HTMLElement>("[data-compare]");
+      if (el) setSplit(el, Number(t.value));
     }
+  });
+}
+
+/** Mobile feed: press and hold a photo to see the original. */
+export function initPeek() {
+  let timer = 0;
+  let active: HTMLElement | null = null;
+  const end = () => {
+    clearTimeout(timer);
+    active?.classList.remove("peek");
+    active = null;
+  };
+  document.addEventListener("pointerdown", (e) => {
+    const m = (e.target as HTMLElement).closest<HTMLElement>(".post-media");
+    if (!m) return;
+    active = m;
+    timer = window.setTimeout(() => {
+      m.classList.add("peek");
+      navigator.vibrate?.(8);
+    }, 140);
+  });
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+  document.addEventListener("contextmenu", (e) => {
+    if ((e.target as HTMLElement).closest(".post-media")) e.preventDefault();
   });
 }

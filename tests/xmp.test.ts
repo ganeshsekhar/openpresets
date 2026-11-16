@@ -88,7 +88,7 @@ describe("sample CSV", () => {
   it("loads only Live rows", () => {
     const text = readFileSync(new URL("../public/presets.csv", import.meta.url), "utf8");
     const list = parsePresetsCsv(text);
-    expect(list.length).toBe(7);
+    expect(list.length).toBe(24);
     expect(list.every((x) => x.status === "Live")).toBe(true);
   });
 });

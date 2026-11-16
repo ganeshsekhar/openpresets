@@ -8,7 +8,7 @@ const xmpBlob = (p: Preset) =>
 
 export function downloadPreset(p: Preset) {
   saveBlob(xmpBlob(p), `${p.slug}.xmp`);
-  toast(`Downloaded ${p.name}`);
+  toast(`✓ ${p.name} downloaded`);
 }
 
 export async function downloadZip(presets: Preset[], label = "all") {
