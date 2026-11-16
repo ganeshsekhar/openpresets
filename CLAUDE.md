@@ -24,6 +24,12 @@ or publishing must follow @docs/legal-protocol.md. Hard rules:
   DMCA/contact email in the footer and README.
 - If a takedown or dispute arrives: stop deleting related files and keep
   generation logs.
+- User uploads (future): never ship without Phase 6 of the protocol —
+  required ownership checkbox ("made it myself or free to share, not paid,
+  purchased or bootlegged; released under CC0") with stored proof of consent,
+  Terms of Service, registered DMCA agent + takedown/counter-notice process +
+  repeat-infringer policy, metadata red-flag checks, fresh XMP regenerated
+  from parsed values, and a moderation queue.
 
 If a request would break one of these rules, say so and suggest the
 compliant alternative instead of doing it.
