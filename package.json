@@ -1,0 +1,24 @@
+{
+  "name": "openpresets",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenPresets: a free, open-source library of presets for Lightroom.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "papaparse": "^5.7.1"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.5.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
