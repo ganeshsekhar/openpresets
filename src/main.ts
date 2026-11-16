@@ -228,7 +228,7 @@ const stagger = (i: number, step = 25) => `animation-delay:${Math.min(i % PAGE, 
 function cardHTML(p: Preset, i: number): string {
   return `<article class="card" data-slug="${esc(p.slug)}" style="${stagger(i)}">
     <div class="ba">${layers(p, { eager: i < 10 })}<span class="ba-rule"></span><span class="ba-label">Before ← → After</span>
-      <button class="chip-dl glass" type="button" data-download="${esc(p.slug)}" aria-label="Download ${esc(p.name)}">↓ .xmp</button></div>
+      <button class="chip-dl" type="button" data-download="${esc(p.slug)}" aria-label="Download ${esc(p.name)} preset">${ICON.download}<span class="t">Download</span></button></div>
     <div class="cap"><h3><a href="${presetHref(p)}">${esc(p.name)}</a></h3><span>${esc(p.category)}</span></div>
   </article>`;
 }
@@ -471,14 +471,17 @@ function renderAbout() {
 const bySlug = (slug?: string) => presets.find((x) => x.slug === slug);
 
 function flashDownloaded(btn: HTMLElement) {
-  if (!btn.classList.contains("chip-dl")) return;
-  const label = btn.textContent;
+  const label = btn.querySelector<HTMLElement>(".t");
+  if (!btn.classList.contains("chip-dl") || !label) return;
   btn.classList.add("ok");
-  btn.textContent = "✓ Saved";
-  setTimeout(() => {
-    btn.classList.remove("ok");
-    btn.textContent = label;
-  }, 1400);
+  label.textContent = "Saved";
+  clearTimeout(Number(btn.dataset.timer));
+  btn.dataset.timer = String(
+    setTimeout(() => {
+      btn.classList.remove("ok");
+      label.textContent = "Download";
+    }, 1600),
+  );
 }
 
 function toggleOriginal(media: HTMLElement) {
