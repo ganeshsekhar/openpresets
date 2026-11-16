@@ -22,7 +22,7 @@ let presets: Preset[] = [];
 let loadError: string | null = null;
 let loaded = false;
 
-const SITE_TITLE = "OpenPresets — free, open-source presets for Lightroom";
+const SITE_TITLE = "OpenPresets — Open-source Lightroom preset library";
 const PAGE = 40; // presets rendered per batch; more load as you scroll
 
 // ---------- persisted UI prefs ----------
@@ -111,6 +111,7 @@ function shellHTML(): string {
   return `<div data-view="library">
     <section class="hero">
       <div>
+        <p class="eyebrow"><span class="dot"></span>Open-source Lightroom preset library</p>
         <h1><span>Free presets,</span> <span style="animation-delay:.08s"><i>simply</i> made.</span></h1>
         <p class="lede" id="lede"></p>
       </div>
@@ -167,8 +168,8 @@ function renderLibrary(f: Filters) {
   main.querySelectorAll<HTMLButtonElement>("[data-layout]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.layout === layout)));
 
   $("#lede").innerHTML = isMobile()
-    ? `An open-source library of free presets for Lightroom. Tap any photo to compare before and after. No sign-up, no email.`
-    : `An open-source library of free presets for Lightroom, tested on real photos. Hover any photo to compare before and after. No sign-up, no email, free for commercial use.`;
+    ? `Every look tested on real photos. Tap any photo to compare before and after. No sign-up, no email.`
+    : `Every look is tested on real photos before it's published. Hover any photo to compare before and after. No sign-up, no email, free for commercial use.`;
   $("#stats").innerHTML = `<div><b>${loaded ? presets.length : "—"}</b><span>Presets</span></div><div><b>CC0</b><span>Free forever</span></div><div><b>MIT</b><span><a href="${esc(config.githubUrl)}" target="_blank" rel="noopener">On GitHub</a></span></div>`;
 
   const results = $("#results");

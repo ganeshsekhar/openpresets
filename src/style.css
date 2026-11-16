@@ -4,7 +4,7 @@
   --bg: #f4f3f0;
   --surface: #ffffff;
   --ink: #121212;
-  --muted: #74726d;
+  --muted: #6b6964; /* 5.0:1 on --bg (AA) */
   --line: rgb(18 18 18 / 0.09);
   --fill: rgb(18 18 18 / 0.05);
   --accent: #13824f;
@@ -112,9 +112,7 @@ p { margin: 0; }
 .nav { display: flex; align-items: center; gap: 2px; }
 .nav a, .nav .icon-btn { padding: 7px 12px; border-radius: 999px; color: var(--muted); transition: color 0.2s, background 0.2s; }
 .nav a:hover, .nav .icon-btn:hover, .nav a[aria-current="page"] { color: var(--ink); background: var(--fill); }
-.brand-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.os-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; }
-.os-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 /* Support: filled pill, the only filled element in the header, but monochrome. */
 .nav .coffee { display: inline-flex; align-items: center; gap: 7px; margin-left: 6px; padding: 8px 14px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 500; transition: transform 0.25s var(--spring), box-shadow 0.25s; }
 .nav .coffee:hover { transform: translateY(-1px); background: var(--accent-hover); box-shadow: 0 8px 20px -8px var(--accent); }
@@ -134,6 +132,7 @@ p { margin: 0; }
 
 /* ---------- hero ---------- */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 18px 40px; padding: 26px 0 24px; }
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 13px; font-weight: 500; color: var(--ink); animation: rise 0.8s var(--ease) both; }
 .hero h1 { font-family: var(--serif); font-size: clamp(42px, 7vw, 92px); line-height: 0.92; letter-spacing: -0.025em; }
 .hero h1 span { display: inline-block; animation: rise 0.9s var(--ease) both; }
 .hero .lede { max-width: 520px; margin-top: 14px; color: var(--muted); font-size: 15px; }
