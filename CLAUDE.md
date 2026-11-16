@@ -5,6 +5,14 @@ Static Vite + TypeScript site, no backend. Presets are CSV rows (later the
 published Google Sheet "Presets" tab); the browser generates `.xmp` on download.
 Deployed to GitHub Pages from `main` (ganeshsekhar/openpresets).
 
+## Deploying
+
+- UI-only changes (styling, layout, copy tweaks, visual polish): after tests,
+  build and a visual check pass, commit and push to `main` (which deploys)
+  without asking the owner first. Then report what shipped.
+- Ask before pushing anything else: legal text, data/CSV, the download or
+  support flow logic, config URLs, or anything destructive.
+
 ## Legal protocol — always follow
 
 Every task that touches preset generation, naming, preview images, site copy
