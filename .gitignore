@@ -1,3 +1,9 @@
 node_modules
 dist
 .DS_Store
+
+# Vendor/reference images must never enter this repo (docs/legal-protocol.md)
+references/
+reference/
+refs/
+*.reference.*
