@@ -103,6 +103,7 @@ const ICON = {
   download: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   share: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   close: `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  coffee: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm13 1h1.5a2.5 2.5 0 0 1 0 5H17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 3.5c0 1 1 1 1 2M12 3.5c0 1 1 1 1 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
   mark: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>`,
 };
 
@@ -114,6 +115,10 @@ function shellHTML(): string {
         <p class="eyebrow"><span class="dot"></span>Open-source Lightroom preset library</p>
         <h1><span>Free presets,</span> <span style="animation-delay:.08s"><i>simply</i> made.</span></h1>
         <p class="lede" id="lede"></p>
+        <div class="hero-cta">
+          <a class="coffee" href="${esc(config.donateUrl)}" target="_blank" rel="noopener">${ICON.coffee}Buy me a coffee</a>
+          <span class="note">Keeps OpenPresets free and growing.</span>
+        </div>
       </div>
       <div class="stats" id="stats"></div>
     </section>
@@ -483,7 +488,7 @@ function renderAbout() {
 
     <h2>Support the project</h2>
     <p>OpenPresets stays free. If it saves you time, you can help cover the domain and keep new presets coming.</p>
-    <p><a class="btn btn-primary" style="color:var(--bg);text-decoration:none" href="${esc(config.donateUrl)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>
+    <p><a class="coffee" style="text-decoration:none" href="${esc(config.donateUrl)}" target="_blank" rel="noopener">${ICON.coffee}Buy me a coffee</a></p>
   </article>`;
 }
 
@@ -655,7 +660,6 @@ document.getElementById("theme-toggle")!.addEventListener("click", () => {
 });
 
 (document.getElementById("nav-github") as HTMLAnchorElement).href = config.githubUrl;
-(document.getElementById("nav-donate") as HTMLAnchorElement).href = config.donateUrl;
 (document.getElementById("foot-credits") as HTMLAnchorElement).href = config.creditsUrl;
 const legalLink = document.getElementById("foot-legal") as HTMLAnchorElement;
 legalLink.href = legalContactHref();
