@@ -1,14 +1,14 @@
 import { config } from "./config";
 import type { Preset } from "./data";
-import { saveBlob, toast } from "./util";
+import { gateDownload } from "./support";
+import { saveBlob } from "./util";
 import { presetToXmp } from "./xmp";
 
 const xmpBlob = (p: Preset) =>
   new Blob([presetToXmp(p, { group: config.presetGroup })], { type: "application/rdf+xml" });
 
 export function downloadPreset(p: Preset) {
-  saveBlob(xmpBlob(p), `${p.slug}.xmp`);
-  toast(`✓ ${p.name} downloaded`);
+  gateDownload(p.name, () => saveBlob(xmpBlob(p), `${p.slug}.xmp`));
 }
 
 export async function downloadZip(presets: Preset[], label = "all") {
@@ -23,9 +23,9 @@ export async function downloadZip(presets: Preset[], label = "all") {
       `Install: Lightroom Classic > Develop > Presets panel > + > Import Presets.\n` +
       `Lightroom (desktop): File > Import Profiles & Presets.\n\n` +
       `Algorithmically generated color transformations, released under CC0. Independent project, ` +
-      `not affiliated with, endorsed by, or sponsored by Adobe Inc. or any preset vendor or film manufacturer.\n`,
+      `not affiliated with, endorsed by, or sponsored by Adobe Inc. or any preset vendor or film manufacturer.\n\n` +
+      `OpenPresets is free forever, funded by people like you: ${config.donateUrl}\n`,
   );
   const blob = await zip.generateAsync({ type: "blob" });
-  saveBlob(blob, `openpresets-${label}.zip`);
-  toast(`Downloaded ${presets.length} presets`);
+  gateDownload(`${presets.length} presets`, () => saveBlob(blob, `openpresets-${label}.zip`));
 }

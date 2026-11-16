@@ -397,6 +397,29 @@ kbd { font: 11px var(--sans); padding: 1px 5px; border: 1px solid var(--line); b
 .footer-links a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 .footer-links a:hover { text-decoration-thickness: 2px; }
 
+/* ---------- post-download support card ---------- */
+.support-card { position: fixed; z-index: 61; left: 50%; bottom: 20px; width: min(420px, calc(100% - 24px)); padding: 16px 18px 16px; border-radius: 20px;
+  background: var(--glass-sheen), var(--glass-stuck); transform: translate(-50%, calc(100% + 40px)); transition: transform 0.55s var(--spring); }
+.support-card.show { transform: translate(-50%, 0); }
+.support-card .sc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.support-card .sc-done { font-size: 13px; color: var(--muted); margin: 0; }
+.sc-ring { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; }
+.sc-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.sc-ring circle { fill: none; stroke-width: 3; }
+.sc-ring .track { stroke: var(--line); }
+.sc-ring .bar { stroke: var(--accent); stroke-linecap: round; }
+.sc-ring b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.support-card.finished .sc-ring b { color: var(--accent); }
+.support-card .sc-title { font-family: var(--serif); font-size: 30px; line-height: 1; letter-spacing: -0.015em; }
+.support-card .sc-body { margin-top: 6px; color: var(--muted); font-size: 13.5px; }
+.support-card .sc-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.support-card .sc-actions .coffee { flex: 1; justify-content: center; }
+.support-card .sc-actions .btn { padding: 11px 16px; }
+.support-card .sc-again { flex-basis: 100%; text-align: left; font-size: 12.5px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; padding: 2px 0 0; }
+.support-card .sc-x-unused { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border-radius: 50%; font-size: 18px; line-height: 1; color: var(--muted); }
+.support-card .sc-x:hover { background: var(--fill); }
+@media (max-width: 720px) { .support-card { bottom: max(12px, env(safe-area-inset-bottom)); } }
+
 /* ---------- toast ---------- */
 .toast { background: var(--glass-sheen), var(--glass-stuck) !important; position: fixed; left: 50%; bottom: 20px; z-index: 60; padding: 10px 16px; border-radius: 999px; font-weight: 500;
   transform: translate(-50%, 120px); transition: transform 0.45s var(--spring); max-width: calc(100% - 32px); }

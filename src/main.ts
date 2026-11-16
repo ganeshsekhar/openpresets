@@ -117,7 +117,7 @@ function shellHTML(): string {
         <p class="lede" id="lede"></p>
         <div class="hero-cta">
           <a class="coffee" href="${esc(config.donateUrl)}" target="_blank" rel="noopener">${ICON.coffee}Buy me a coffee</a>
-          <span class="note">Keeps OpenPresets free and growing.</span>
+          <span class="note">Free forever, funded by people like you. No paywall, no sign-up — just one 10-second wait per visit.</span>
         </div>
       </div>
       <div class="stats" id="stats"></div>
@@ -439,7 +439,7 @@ function renderPreset(slug: string) {
           <summary>Settings in this preset</summary>
           <div class="panel-body"><dl class="settings">${settingsHTML}</dl></div>
         </details>
-        <p class="hint">Like it? OpenPresets is free and run by one person. <a href="${esc(config.donateUrl)}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:underline">Buy me a coffee ☕</a></p>
+        <p class="hint">OpenPresets is open source and free forever, funded by people like you. <a href="${esc(config.donateUrl)}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:underline">Buy me a coffee ☕</a></p>
       </aside>
     </div>`;
 }
@@ -486,8 +486,9 @@ function renderAbout() {
     <h2>Copyright concerns</h2>
     <p>If you believe something here infringes your rights, please <a href="${esc(legalContactHref())}"${ext}>contact us</a> first. We review every report and respond quickly.</p>
 
-    <h2>Support the project</h2>
-    <p>OpenPresets stays free. If it saves you time, you can help cover the domain and keep new presets coming.</p>
+    <h2>Free forever, <i>funded by people like you</i></h2>
+    <p>There are no ads, no accounts and no paid tier. Every preset, every line of code and every update is open. The project runs on small contributions from people who use it: a coffee covers the domain, keeps preset testing going and pays for new looks.</p>
+    <p>The only "price" is a 10-second wait on your first download of each visit, while we say hello. Every download after that is instant, and supporters skip it entirely.</p>
     <p><a class="coffee" style="text-decoration:none" href="${esc(config.donateUrl)}" target="_blank" rel="noopener">${ICON.coffee}Buy me a coffee</a></p>
   </article>`;
 }
@@ -576,7 +577,8 @@ async function onClick(e: MouseEvent) {
     const p = bySlug(dl.dataset.download);
     if (p) {
       downloadPreset(p);
-      flashDownloaded(dl);
+      // During the once-per-visit wait the card shows progress instead.
+      if (!document.querySelector(".support-card")) flashDownloaded(dl);
     }
     return;
   }
