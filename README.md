@@ -36,6 +36,17 @@ Regenerate the placeholder data: `node scripts/make-sample-csv.mjs`.
 
 Sheet → File → Share → Publish to web → Presets tab → CSV. Put that URL in `src/config.ts` → `presetsCsvUrl`.
 
-## License
+## License and legal
 
-Code: MIT. Presets: CC0. Not affiliated with or endorsed by Adobe. Lightroom is a trademark of Adobe Inc.
+- **Presets:** CC0 1.0 Universal (public domain). **Code:** MIT. See [LICENSE](LICENSE).
+- **Preview photos:** logged with source and photographer in [CREDITS.md](CREDITS.md).
+- **How presets are made:** see [docs/legal-protocol.md](docs/legal-protocol.md) (clean-room generation, naming and image rules).
+
+> All presets and color profiles in this repository are algorithmically generated mathematical color
+> transformations released into the public domain under CC0. This project is independent and is not
+> affiliated with, endorsed by, or sponsored by Adobe Inc. or any third-party preset vendor or film
+> manufacturer. All preview photographs are original works or sourced under Creative Commons Zero /
+> Unsplash / Pexels licenses.
+
+**Copyright / DMCA concerns:** please [open a Copyright / DMCA issue](https://github.com/ganeshsekhar/openpresets/issues/new?template=copyright-dmca.yml)
+before filing a takedown. We review every report and respond quickly.

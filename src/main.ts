@@ -258,7 +258,16 @@ function renderAbout() {
     </ul>
 
     <h2>License</h2>
-    <p><strong>Presets:</strong> CC0. Use them anywhere, no credit needed (but always welcome). <strong>Code:</strong> MIT.</p>
+    <p><strong>Presets:</strong> CC0 1.0 Universal (public domain). Use them anywhere, no credit needed (but always welcome). <strong>Code:</strong> MIT.</p>
+
+    <h2>How presets are made</h2>
+    <p>Every preset is an algorithmically generated colour transformation, built and tested locally and written into a fresh .xmp file. We never copy or redistribute other creators' preset files, and we never use other brands', creators' or pack names. Film-inspired looks use descriptive names only.</p>
+
+    <h2>Preview photos</h2>
+    <p>Preview photos are our own or sourced under Creative Commons Zero, Unsplash or Pexels licenses. Every photo is logged with its source and photographer in <a href="${esc(config.creditsUrl)}" target="_blank" rel="noopener">CREDITS.md</a>.</p>
+
+    <h2>Copyright concerns</h2>
+    <p>If you believe something here infringes your rights, please <a href="${esc(legalContactHref())}"${config.contactEmail ? "" : ' target="_blank" rel="noopener"'}>contact us</a> first. We review every report and respond quickly.</p>
 
     <h2>Contribute</h2>
     <p>The whole site is on <a href="${esc(config.githubUrl)}" target="_blank" rel="noopener">GitHub</a>. Open an issue to suggest a preset or report a bug, or send a pull request. You can also <a href="${esc(config.requestFormUrl)}" target="_blank" rel="noopener">request a preset</a> without a GitHub account.</p>
@@ -340,6 +349,14 @@ document.getElementById("theme-toggle")!.addEventListener("click", () => {
 
 (document.getElementById("nav-github") as HTMLAnchorElement).href = config.githubUrl;
 (document.getElementById("nav-donate") as HTMLAnchorElement).href = config.donateUrl;
+(document.getElementById("foot-credits") as HTMLAnchorElement).href = config.creditsUrl;
+const legalLink = document.getElementById("foot-legal") as HTMLAnchorElement;
+legalLink.href = legalContactHref();
+if (config.contactEmail) legalLink.removeAttribute("target");
+
+function legalContactHref() {
+  return config.contactEmail ? `mailto:${config.contactEmail}` : config.legalIssueUrl;
+}
 
 initCompare(navigate);
 render();

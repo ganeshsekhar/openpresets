@@ -13,6 +13,13 @@ export const config = {
   donateUrl: "https://buymeacoffee.com/openpresets",
   requestFormUrl: "https://forms.gle/REPLACE_ME",
 
+  // Copyright / DMCA contact. Set an email to show it; until then the site
+  // links to the GitHub "Copyright / DMCA" issue form.
+  contactEmail: "",
+  legalIssueUrl:
+    "https://github.com/ganeshsekhar/openpresets/issues/new?template=copyright-dmca.yml",
+  creditsUrl: "https://github.com/ganeshsekhar/openpresets/blob/main/CREDITS.md",
+
   // Lightroom groups presets by this name after import.
   presetGroup: "OpenPresets",
 };

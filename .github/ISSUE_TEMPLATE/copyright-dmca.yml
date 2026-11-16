@@ -1,0 +1,26 @@
+name: Copyright / DMCA / trademark concern
+description: Tell us if you believe something on OpenPresets infringes your rights.
+title: "[Copyright] "
+labels: ["legal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contacting us before filing a takedown. We review every report and respond quickly.
+        Do not post private information (home address, phone) in this public issue. Leave a way to reach you if you'd rather continue privately.
+  - type: input
+    id: item
+    attributes:
+      label: What item? (preset name or page URL)
+    validations:
+      required: true
+  - type: textarea
+    id: work
+    attributes:
+      label: Your original work and how you believe it was copied
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: How can we reach you? (optional)

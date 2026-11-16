@@ -21,7 +21,9 @@ export async function downloadZip(presets: Preset[], label = "all") {
     "README.txt",
     `${config.siteName} (${config.domain})\nFree presets for Lightroom, released under CC0.\n\n` +
       `Install: Lightroom Classic > Develop > Presets panel > + > Import Presets.\n` +
-      `Lightroom (desktop): File > Import Profiles & Presets.\n`,
+      `Lightroom (desktop): File > Import Profiles & Presets.\n\n` +
+      `Algorithmically generated color transformations, released under CC0. Independent project, ` +
+      `not affiliated with, endorsed by, or sponsored by Adobe Inc. or any preset vendor or film manufacturer.\n`,
   );
   const blob = await zip.generateAsync({ type: "blob" });
   saveBlob(blob, `openpresets-${label}.zip`);
