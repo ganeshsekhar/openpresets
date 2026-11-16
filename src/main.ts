@@ -1,60 +1,81 @@
 import "./style.css";
-import { afterLayer, compareHTML, initCompare, initPeek, layers } from "./compare";
+import { afterLayer, compareHTML, initCompare, layers } from "./compare";
 import { config } from "./config";
 import { loadPresets, type Preset } from "./data";
 import { downloadPreset, downloadZip } from "./download";
+import {
+  activeCount,
+  applyFilters,
+  categoryCounts,
+  filtersHash,
+  readFilters,
+  SORTS,
+  tagCounts,
+  type Filters,
+  type Sort,
+} from "./filters";
 import { settingGroups } from "./labels";
-import { esc } from "./util";
+import { esc, toast } from "./util";
 
 const main = document.getElementById("main")!;
 let presets: Preset[] = [];
 let loadError: string | null = null;
 let loaded = false;
 
-const CATEGORY_ORDER = ["Portrait", "Film", "Moody", "Travel", "Black & White"];
 const SITE_TITLE = "OpenPresets — free, open-source presets for Lightroom";
+const PAGE = 40; // presets rendered per batch; more load as you scroll
 
-// ---------- view mode ----------
+// ---------- persisted UI prefs ----------
+const store = {
+  get: (k: string) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k: string, v: string) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {}
+  },
+};
 type Layout = "grid" | "focus";
 const mobileQuery = matchMedia("(max-width: 720px)");
 const isMobile = () => mobileQuery.matches;
-let layout: Layout = "grid";
-try {
-  if (localStorage.getItem("op-view") === "focus") layout = "focus";
-} catch {}
+let layout: Layout = store.get("op-view") === "focus" ? "focus" : "grid";
+let hintsSeen = store.get("op-compare-hint") === "seen";
+
+let current: Preset[] = [];
+let shown = 0;
 let focusIndex = 0;
-let current: Preset[] = []; // presets currently shown in the library
 
 // ---------- routing ----------
 interface Route {
   view: "library" | "preset" | "about";
   slug?: string;
-  q: string;
-  cat: string;
+  f: Filters;
 }
 
 function parseRoute(): Route {
   const raw = location.hash.replace(/^#/, "") || "/";
   const [path, query = ""] = raw.split("?");
-  const params = new URLSearchParams(query);
-  const q = params.get("q") ?? "";
-  const cat = params.get("cat") ?? "";
+  const f = readFilters(new URLSearchParams(query));
   const m = path.match(/^\/preset\/([^/]+)/);
-  if (m) return { view: "preset", slug: decodeURIComponent(m[1]), q, cat };
-  if (path.startsWith("/about")) return { view: "about", q, cat };
-  return { view: "library", q, cat };
-}
-
-function libraryHash(q: string, cat: string) {
-  const p = new URLSearchParams();
-  if (q) p.set("q", q);
-  if (cat) p.set("cat", cat);
-  const s = p.toString();
-  return `#/${s ? `?${s}` : ""}`;
+  if (m) return { view: "preset", slug: decodeURIComponent(m[1]), f };
+  if (path.startsWith("/about")) return { view: "about", f };
+  return { view: "library", f };
 }
 
 const presetHref = (p: Preset) => `#/preset/${encodeURIComponent(p.slug)}`;
 let lastLibraryHash = "#/";
+
+function setFilters(next: Partial<Filters>) {
+  const f = { ...parseRoute().f, ...next };
+  history.replaceState(null, "", filtersHash(f));
+  focusIndex = 0;
+  render();
+}
 
 function render() {
   const route = parseRoute();
@@ -63,100 +84,85 @@ function render() {
     if (on) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
+  if (route.view !== "library") closePanel();
   if (route.view === "library") {
     lastLibraryHash = location.hash || "#/";
     document.title = SITE_TITLE;
-    renderLibrary(route);
-  } else if (route.view === "preset") {
-    renderPreset(route.slug!);
-  } else {
-    renderAbout();
-  }
+    renderLibrary(route.f);
+  } else if (route.view === "preset") renderPreset(route.slug!);
+  else renderAbout();
 }
 
-// ---------- library ----------
-function categories(): string[] {
-  const set = new Set(presets.map((p) => p.category).filter(Boolean));
-  return [...set].sort((a, b) => {
-    const ia = CATEGORY_ORDER.indexOf(a);
-    const ib = CATEGORY_ORDER.indexOf(b);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
-  });
-}
-
-function filterPresets(q: string, cat: string): Preset[] {
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-  return presets.filter((p) => {
-    if (cat && p.category !== cat) return false;
-    if (!terms.length) return true;
-    const hay = [p.name, p.category, p.description, ...p.tags].join(" ").toLowerCase();
-    return terms.every((t) => hay.includes(t));
-  });
-}
-
+// ---------- icons ----------
 const ICON = {
-  search: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  filter: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  sort: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4v16m0 0l-3-3m3 3l3-3M17 20V4m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   grid: `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" fill="currentColor"/></svg>`,
   focus: `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M3 4h10v16H3zM15 4h6v4h-6zM15 10h6v4h-6zM15 16h6v4h-6z" fill="currentColor"/></svg>`,
   download: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   share: `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  close: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  close: `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mark: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>`,
 };
 
-function requestBandHTML(): string {
-  return `<section class="band">
-    <div><h2>Missing a <i>look?</i></h2><p>Request a preset, or share one you made. The library is open source.</p></div>
-    <div class="band-actions">
-      <a class="btn btn-primary" href="${esc(config.requestFormUrl)}" target="_blank" rel="noopener">Request a preset</a>
-      <a class="btn btn-ghost" href="#/about">How to contribute</a>
+// ---------- library ----------
+function shellHTML(): string {
+  return `<div data-view="library">
+    <section class="hero">
+      <div>
+        <h1><span>Free presets,</span> <span style="animation-delay:.08s"><i>simply</i> made.</span></h1>
+        <p class="lede" id="lede"></p>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+    <div class="bar glass" id="bar">
+      <label class="search">${ICON.search}
+        <input id="search" type="search" placeholder="Search looks — warm, film, moody…" autocomplete="off" aria-label="Search presets">
+        <button class="clear" id="clear-search" type="button" aria-label="Clear search" hidden>${ICON.close}</button>
+        <kbd>/</kbd>
+      </label>
+      <button class="tool" id="open-filters" type="button" aria-haspopup="dialog">${ICON.filter}<span>Filters</span><span class="n" id="fcount" hidden></span></button>
+      <label class="tool sort-tool">${ICON.sort}<select id="sort" aria-label="Sort">${SORTS.map((s) => `<option value="${s.id}">${s.label}</option>`).join("")}</select></label>
+      <div class="views" role="group" aria-label="Layout">
+        <button type="button" data-layout="grid" aria-pressed="false">${ICON.grid}<span>Grid</span></button>
+        <button type="button" data-layout="focus" aria-pressed="false">${ICON.focus}<span>Focus</span></button>
+      </div>
     </div>
-  </section>`;
+    <div class="quick" id="quick"></div>
+    <div class="result-meta"><p class="muted small" id="count" aria-live="polite"></p><button class="btn btn-ghost small" id="zip" type="button" hidden></button></div>
+    <div id="results"></div>
+    <section class="band">
+      <div><h2>Missing a <i>look?</i></h2><p>Request a preset, or share one you made. The library is open source.</p></div>
+      <div class="band-actions">
+        <a class="btn btn-primary" href="${esc(config.requestFormUrl)}" target="_blank" rel="noopener">Request a preset</a>
+        <a class="btn btn-ghost" href="#/about">How to contribute</a>
+      </div>
+    </section>
+  </div>`;
 }
 
-function renderLibrary(route: Route) {
-  if (!main.querySelector("[data-view=library]")) {
-    main.innerHTML = `<div data-view="library">
-      <section class="hero">
-        <h1><span>Free presets,</span> <span style="animation-delay:.08s"><i>simply</i> made.</span></h1>
-        <p id="hero-sub"><b>Free looks</b> for Lightroom. Hover to compare, click to download. Open source, CC0, no sign-up.</p>
-      </section>
-      <div class="bar glass" id="bar">
-        <div class="tabs" id="tabs" role="group" aria-label="Filter by category"><span class="pill"></span></div>
-        <label class="search">${ICON.search}<input id="search" type="search" placeholder="Search looks" autocomplete="off" aria-label="Search presets"></label>
-        <button class="search-toggle" id="search-toggle" type="button" aria-label="Search">${ICON.search}</button>
-        <div class="views" role="group" aria-label="Layout">
-          <button type="button" data-layout="grid" aria-pressed="false">${ICON.grid}<span>Grid</span></button>
-          <button type="button" data-layout="focus" aria-pressed="false">${ICON.focus}<span>Focus</span></button>
-        </div>
-      </div>
-      <div class="result-meta"><p class="muted small" id="count" aria-live="polite"></p><button class="btn btn-ghost small" id="zip" type="button" hidden></button></div>
-      <div id="results"></div>
-      ${requestBandHTML()}
-    </div>`;
-  }
-  const search = main.querySelector<HTMLInputElement>("#search")!;
-  if (document.activeElement !== search) search.value = route.q;
-  if (route.q && isMobile()) main.querySelector("#bar")!.classList.add("searching");
+function renderLibrary(f: Filters) {
+  if (!main.querySelector("[data-view=library]")) main.innerHTML = shellHTML();
+  const $ = <T extends HTMLElement>(s: string) => main.querySelector<T>(s)!;
 
-  const tabs = main.querySelector<HTMLElement>("#tabs")!;
-  const all = presets.length;
-  tabs.querySelectorAll("button").forEach((b) => b.remove());
-  tabs.insertAdjacentHTML(
-    "beforeend",
-    ["", ...categories()]
-      .map((c) => {
-        const n = c ? presets.filter((p) => p.category === c).length : all;
-        return `<button type="button" data-cat="${esc(c)}" aria-pressed="${c === route.cat}">${c ? esc(c) : "All"}${loaded ? `<sup>${n}</sup>` : ""}</button>`;
-      })
-      .join(""),
-  );
-  movePill();
+  const search = $<HTMLInputElement>("#search");
+  if (document.activeElement !== search) search.value = f.q;
+  $("#clear-search").hidden = !f.q;
+  $<HTMLSelectElement>("#sort").value = f.sort;
+  const n = activeCount(f);
+  $("#fcount").hidden = !n;
+  $("#fcount").textContent = String(n);
   main.querySelectorAll<HTMLButtonElement>("[data-layout]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.layout === layout)));
 
-  const results = main.querySelector<HTMLElement>("#results")!;
-  const count = main.querySelector<HTMLElement>("#count")!;
-  const zip = main.querySelector<HTMLButtonElement>("#zip")!;
+  $("#lede").innerHTML = isMobile()
+    ? `An open-source library of free presets for Lightroom. Tap any photo to compare before and after. No sign-up, no email.`
+    : `An open-source library of free presets for Lightroom, tested on real photos. Hover any photo to compare before and after. No sign-up, no email, free for commercial use.`;
+  $("#stats").innerHTML = `<div><b>${loaded ? presets.length : "—"}</b><span>Presets</span></div><div><b>CC0</b><span>Free forever</span></div><div><b>MIT</b><span><a href="${esc(config.githubUrl)}" target="_blank" rel="noopener">On GitHub</a></span></div>`;
+
+  const results = $("#results");
+  const count = $("#count");
+  const zip = $<HTMLButtonElement>("#zip");
 
   if (!loaded) {
     results.innerHTML = `<div class="grid">${'<div class="skeleton"></div>'.repeat(10)}</div>`;
@@ -170,77 +176,176 @@ function renderLibrary(route: Route) {
     return;
   }
 
-  current = filterPresets(route.q, route.cat);
-  main.querySelector<HTMLElement>("#hero-sub")!.innerHTML = isMobile()
-    ? `<b>${all} free looks</b> for Lightroom. Hold a photo to see the original, double-tap to download. Open source, CC0.`
-    : `<b>${all} free looks</b> for Lightroom. Hover to compare, click to download. Open source, CC0, no sign-up.`;
-  count.textContent = `${current.length} preset${current.length === 1 ? "" : "s"}${route.cat ? ` in ${route.cat}` : ""}${route.q ? ` matching “${route.q}”` : ""}`;
-  zip.hidden = current.length < 2;
-  zip.textContent = `Download ${current.length === all ? "all" : "these"} ${current.length} (.zip)`;
+  current = applyFilters(presets, f);
+  $("#quick").innerHTML = quickHTML(f);
+  count.textContent = `${current.length.toLocaleString()} preset${current.length === 1 ? "" : "s"}${f.q ? ` for “${f.q}”` : ""}`;
+  zip.hidden = current.length < 2 || current.length > 200;
+  zip.textContent = `Download ${current.length === presets.length ? "all" : "these"} ${current.length} (.zip)`;
+  if (panelOpen()) paintPanel();
 
   if (!current.length) {
     results.innerHTML = `<div class="empty">
-      <h2>No looks match “${esc(route.q || route.cat)}”</h2>
+      <h2>No looks match${f.q ? ` “${esc(f.q)}”` : " these filters"}</h2>
       <p>We don't have that one yet. Ask for it and it could be next.</p>
-      <a class="btn btn-primary" href="${esc(config.requestFormUrl)}" target="_blank" rel="noopener">Request this preset</a>
+      <div class="band-actions" style="justify-content:center">
+        <a class="btn btn-primary" href="${esc(config.requestFormUrl)}" target="_blank" rel="noopener">Request this preset</a>
+        ${activeCount(f) || f.q ? `<button class="btn btn-ghost" type="button" data-clear-all>Clear filters</button>` : ""}
+      </div>
     </div>`;
     return;
   }
 
-  if (isMobile()) results.innerHTML = feedHTML(current);
+  shown = Math.min(PAGE, current.length);
+  const slice = current.slice(0, shown);
+  if (isMobile()) results.innerHTML = `<div class="feed${hintsSeen ? " hints-off" : ""}" id="items">${slice.map(postHTML).join("")}</div>`;
   else if (layout === "focus") {
     focusIndex = Math.min(focusIndex, current.length - 1);
-    results.innerHTML = focusHTML(current);
+    results.innerHTML = `<div class="focus"><aside class="stage" id="stage" aria-live="polite"></aside>
+      <div class="mini" id="items"><p class="mini-hint muted small">Hover to preview · <kbd>←</kbd> <kbd>→</kbd> step · <kbd>D</kbd> download · <kbd>Enter</kbd> open</p>${slice.map(tileHTML).join("")}</div></div>`;
     selectFocus(focusIndex, false);
-  } else results.innerHTML = gridHTML(current);
+  } else results.innerHTML = `<div class="grid" id="items">${slice.map(cardHTML).join("")}</div>`;
+  results.insertAdjacentHTML("beforeend", `<div class="sentinel" id="sentinel"></div>`);
+  pager.observe(main.querySelector("#sentinel")!);
 }
 
-function movePill() {
-  const tabs = main.querySelector<HTMLElement>("#tabs");
-  const b = tabs?.querySelector<HTMLElement>('[aria-pressed="true"]');
-  const pill = tabs?.querySelector<HTMLElement>(".pill");
-  if (!b || !pill) return;
-  pill.style.left = `${b.offsetLeft}px`;
-  pill.style.width = `${b.offsetWidth}px`;
+// Quick chips: what's active (tap to remove), then the most useful next filters.
+function quickHTML(f: Filters): string {
+  const active: string[] = [];
+  if (f.cat) active.push(`<button class="qchip on" type="button" data-cat="${esc(f.cat)}" aria-label="Remove ${esc(f.cat)}">${esc(f.cat)}</button>`);
+  for (const t of f.tags) active.push(`<button class="qchip on" type="button" data-tag="${esc(t)}" aria-label="Remove #${esc(t)}">#${esc(t)}</button>`);
+  if (active.length > 1) active.push(`<button class="qchip reset" type="button" data-clear-all>Clear all</button>`);
+
+  const suggestions: string[] = [];
+  if (!f.cat) for (const [c, n] of categoryCounts(current).slice(0, 6)) suggestions.push(`<button class="qchip" type="button" data-cat="${esc(c)}">${esc(c)} <small>${n}</small></button>`);
+  const tagLimit = isMobile() ? 8 : 10;
+  for (const [t, n] of tagCounts(current).filter(([t, n]) => !f.tags.includes(t) && n < current.length).slice(0, tagLimit))
+    suggestions.push(`<button class="qchip" type="button" data-tag="${esc(t)}">#${esc(t)} <small>${n}</small></button>`);
+  return active.join("") + suggestions.join("");
 }
 
-const stagger = (i: number, step = 25) => `animation-delay:${Math.min(i, 15) * step}ms`;
+const stagger = (i: number, step = 25) => `animation-delay:${Math.min(i % PAGE, 15) * step}ms`;
 
-// Grid (Index)
-function gridHTML(list: Preset[]): string {
-  return `<div class="grid">${list
-    .map(
-      (p, i) => `<article class="card" data-slug="${esc(p.slug)}" style="${stagger(i)}">
-      <div class="ba">${layers(p, { eager: i < 10 })}<span class="ba-rule"></span><span class="ba-label">Before ← → After</span>
-        <button class="chip-dl glass" type="button" data-download="${esc(p.slug)}" aria-label="Download ${esc(p.name)}">↓ .xmp</button></div>
-      <div class="cap"><h3><a href="${presetHref(p)}">${esc(p.name)}</a></h3><span>${esc(p.category)}</span></div>
-    </article>`,
-    )
-    .join("")}</div>`;
+function cardHTML(p: Preset, i: number): string {
+  return `<article class="card" data-slug="${esc(p.slug)}" style="${stagger(i)}">
+    <div class="ba">${layers(p, { eager: i < 10 })}<span class="ba-rule"></span><span class="ba-label">Before ← → After</span>
+      <button class="chip-dl glass" type="button" data-download="${esc(p.slug)}" aria-label="Download ${esc(p.name)}">↓ .xmp</button></div>
+    <div class="cap"><h3><a href="${presetHref(p)}">${esc(p.name)}</a></h3><span>${esc(p.category)}</span></div>
+  </article>`;
 }
 
-// Focus (Split)
-function focusHTML(list: Preset[]): string {
-  return `<div class="focus">
-    <aside class="stage" id="stage" aria-live="polite"></aside>
-    <div class="mini">
-      <p class="mini-hint muted small">Hover to preview · <kbd>←</kbd> <kbd>→</kbd> step · <kbd>D</kbd> download · <kbd>Enter</kbd> open</p>
-      ${list
-        .map(
-          (p, i) => `<div class="tile" tabindex="0" role="button" data-k="${i}" aria-label="${esc(p.name)}" style="${stagger(i, 18)}">
-          <div class="thumb">${afterLayer(p)}</div><b>${esc(p.name)}</b><small>${esc(p.category)}</small></div>`,
-        )
-        .join("")}
+function tileHTML(p: Preset, i: number): string {
+  return `<div class="tile" tabindex="0" role="button" data-k="${i}" aria-label="${esc(p.name)}" style="${stagger(i, 18)}">
+    <div class="thumb">${afterLayer(p)}</div><b>${esc(p.name)}</b><small>${esc(p.category)}</small></div>`;
+}
+
+function postHTML(p: Preset, i: number): string {
+  // Hint only on the first three posts, and only until the visitor has tried it once.
+  const hint = i < 3 && !hintsSeen ? `<span class="tap-hint"><i></i>Tap to see the original</span>` : "";
+  return `<article class="post" data-slug="${esc(p.slug)}" style="${stagger(i, 40)}">
+    <header class="post-head">
+      <span class="avatar">${ICON.mark}</span>
+      <div><b>${esc(p.name)}</b><small>${esc(p.category)} · ${esc(p.id)}</small></div>
+      <a class="more" href="${presetHref(p)}">Details</a>
+    </header>
+    <div class="post-media" data-slug="${esc(p.slug)}" role="button" tabindex="0" aria-pressed="false" aria-label="${esc(p.name)}: tap to switch between edited and original">
+      ${layers(p, { eager: i < 2 })}<span class="wipe"></span>
+      <span class="flip" aria-hidden="true"><span class="a">Edited</span><span class="b">Original</span></span>${hint}
     </div>
-  </div>`;
+    <div class="post-actions">
+      <button class="btn btn-primary grow" type="button" data-download="${esc(p.slug)}">${ICON.download} Download .xmp</button>
+      <button class="icon" type="button" data-share="${esc(p.slug)}" aria-label="Share ${esc(p.name)}">${ICON.share}</button>
+    </div>
+    <p class="post-cap"><b>OpenPresets</b> ${esc(p.description)}</p>
+    <div class="post-tags">${p.tags.map((t) => `<button type="button" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>
+  </article>`;
 }
 
+// Infinite scroll: append the next page when the sentinel comes into view.
+const pager = new IntersectionObserver(
+  (entries) => {
+    if (!entries.some((e) => e.isIntersecting) || shown >= current.length) return;
+    const items = main.querySelector<HTMLElement>("#items");
+    if (!items) return;
+    const next = current.slice(shown, shown + PAGE);
+    const tpl = isMobile() ? postHTML : items.classList.contains("mini") ? tileHTML : cardHTML;
+    items.insertAdjacentHTML("beforeend", next.map((p, k) => tpl(p, shown + k)).join(""));
+    shown += next.length;
+  },
+  { rootMargin: "800px 0px" },
+);
+
+// ---------- filter panel ----------
+const scrim = document.createElement("div");
+scrim.className = "fscrim";
+const panel = document.createElement("div");
+panel.className = "fpanel glass";
+panel.setAttribute("role", "dialog");
+panel.setAttribute("aria-label", "Filters");
+document.body.append(scrim, panel);
+let tagQuery = "";
+const panelOpen = () => panel.classList.contains("open");
+
+function paintPanel() {
+  const f = parseRoute().f;
+  // Counts reflect everything except the facet itself, so options never dead-end.
+  const forCats = applyFilters(presets, { ...f, cat: "" });
+  const forTags = applyFilters(presets, { ...f, tags: [] });
+  const cats = categoryCounts(forCats);
+  const tags = tagCounts(forTags).filter(([t]) => !tagQuery || t.includes(tagQuery.toLowerCase()));
+  const shownTags = [...f.tags.map((t) => [t, 0] as [string, number]), ...tags.filter(([t]) => !f.tags.includes(t)).slice(0, 40)];
+  panel.innerHTML = `<header><h3>Filters</h3><button class="icon-btn" type="button" data-close-panel aria-label="Close">${ICON.close}</button></header>
+    <div class="fbody">
+      <section class="fgroup"><h4>Style</h4><div class="fopts">${cats
+        .map(([c, n]) => `<button class="qchip${f.cat === c ? " on" : ""}" type="button" data-cat="${esc(c)}">${esc(c)} <small>${n}</small></button>`)
+        .join("")}</div></section>
+      <section class="fgroup"><h4>Tags</h4>
+        <input class="fsearch" id="tag-search" placeholder="Find a tag…" value="${esc(tagQuery)}" autocomplete="off">
+        <div class="fopts">${shownTags
+          .map(([t, n]) => `<button class="qchip${f.tags.includes(t) ? " on" : ""}" type="button" data-tag="${esc(t)}">#${esc(t)}${n ? ` <small>${n}</small>` : ""}</button>`)
+          .join("") || '<span class="muted small">No tags match.</span>'}</div></section>
+      <section class="fgroup"><h4>Sort</h4><div class="fopts">${SORTS.map(
+        (s) => `<button class="qchip${f.sort === s.id ? " on" : ""}" type="button" data-sort="${s.id}">${s.label}</button>`,
+      ).join("")}</div></section>
+    </div>
+    <div class="ffoot"><button class="btn btn-ghost" type="button" data-clear-all>Clear all</button>
+      <button class="btn btn-primary" type="button" data-close-panel>Show ${current.length.toLocaleString()} preset${current.length === 1 ? "" : "s"}</button></div>`;
+  const ts = panel.querySelector<HTMLInputElement>("#tag-search")!;
+  ts.oninput = () => {
+    tagQuery = ts.value;
+    const pos = ts.selectionStart;
+    paintPanel();
+    const again = panel.querySelector<HTMLInputElement>("#tag-search")!;
+    again.focus();
+    again.setSelectionRange(pos, pos);
+  };
+}
+function openPanel() {
+  paintPanel();
+  panel.classList.add("open");
+  scrim.classList.add("open");
+  (panel.querySelector("[data-close-panel]") as HTMLElement)?.focus({ preventScroll: true });
+}
+function closePanel() {
+  panel.classList.remove("open");
+  scrim.classList.remove("open");
+}
+scrim.addEventListener("click", closePanel);
+
+// ---------- focus view ----------
 let swapTimer = 0;
 function selectFocus(i: number, animate = true) {
   if (!current.length) return;
   focusIndex = (i + current.length) % current.length;
+  // Make sure the selected tile is rendered (keyboard can step past the loaded page).
+  while (focusIndex >= shown && shown < current.length) {
+    const items = main.querySelector<HTMLElement>("#items");
+    const next = current.slice(shown, shown + PAGE);
+    items?.insertAdjacentHTML("beforeend", next.map((p, k) => tileHTML(p, shown + k)).join(""));
+    shown += next.length;
+  }
   const p = current[focusIndex];
-  main.querySelectorAll<HTMLElement>(".tile").forEach((t) => t.setAttribute("aria-current", String(Number(t.dataset.k) === focusIndex)));
+  main.querySelectorAll<HTMLElement>(".tile[aria-current]").forEach((t) => t.removeAttribute("aria-current"));
+  main.querySelector<HTMLElement>(`.tile[data-k="${focusIndex}"]`)?.setAttribute("aria-current", "true");
   const stage = main.querySelector<HTMLElement>("#stage");
   if (!stage) return;
   const paint = () => {
@@ -261,30 +366,6 @@ function selectFocus(i: number, animate = true) {
     stage.classList.add("swapping");
     swapTimer = window.setTimeout(paint, 110);
   } else paint();
-}
-
-// Feed (mobile)
-function feedHTML(list: Preset[]): string {
-  return `<div class="feed">${list
-    .map(
-      (p, i) => `<article class="post" data-slug="${esc(p.slug)}" style="${stagger(i, 40)}">
-      <header class="post-head">
-        <span class="avatar">${ICON.mark}</span>
-        <div><b>${esc(p.name)}</b><small>${esc(p.category)} · ${esc(p.id)}</small></div>
-        <a class="more" href="${presetHref(p)}">Details</a>
-      </header>
-      <div class="post-media" data-slug="${esc(p.slug)}">${layers(p, { eager: i < 2 })}
-        <span class="state"></span>${i === 0 ? '<span class="peek-chip">Hold to see original</span>' : ""}
-      </div>
-      <div class="post-actions">
-        <button class="btn btn-primary grow" type="button" data-download="${esc(p.slug)}">${ICON.download} Download .xmp</button>
-        <button class="icon" type="button" data-share="${esc(p.slug)}" aria-label="Share ${esc(p.name)}">${ICON.share}</button>
-      </div>
-      <p class="post-cap"><b>OpenPresets</b> ${esc(p.description)}</p>
-      <div class="post-tags">${p.tags.map((t) => `<button type="button" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>
-    </article>`,
-    )
-    .join("")}</div>`;
 }
 
 // ---------- detail ----------
@@ -316,8 +397,8 @@ function renderPreset(slug: string) {
         <h1>${esc(p.name)}</h1>
         <p class="muted">${esc(p.description)}</p>
         <div class="chips">
-          <a class="chip" href="${libraryHash("", p.category)}">${esc(p.category)}</a>
-          ${p.tags.map((t) => `<a class="chip" href="${libraryHash(t, "")}">#${esc(t)}</a>`).join("")}
+          <a class="chip" href="${filtersHash({ cat: p.category })}">${esc(p.category)}</a>
+          ${p.tags.map((t) => `<a class="chip" href="${filtersHash({ tags: [t] })}">#${esc(t)}</a>`).join("")}
         </div>
         <button class="btn btn-primary" style="padding:15px" type="button" data-download="${esc(p.slug)}">${ICON.download} Download .xmp — free</button>
         <p class="hint">CC0 · by ${esc(p.author || "OpenPresets")} · Classic, desktop &amp; mobile</p>
@@ -400,58 +481,66 @@ function flashDownloaded(btn: HTMLElement) {
   }, 1400);
 }
 
-function burst(media: HTMLElement) {
-  const el = document.createElement("div");
-  el.className = "dl-burst";
-  el.innerHTML = `<span>↓</span>`;
-  media.appendChild(el);
-  setTimeout(() => el.remove(), 950);
+function toggleOriginal(media: HTMLElement) {
+  const orig = media.classList.toggle("orig");
+  media.setAttribute("aria-pressed", String(orig));
+  media.classList.remove("flipping");
+  void media.offsetWidth; // restart the wipe animation
+  media.classList.add("flipping");
+  setTimeout(() => media.classList.remove("flipping"), 600);
+  navigator.vibrate?.(6);
+  if (!hintsSeen) {
+    hintsSeen = true;
+    store.set("op-compare-hint", "seen");
+    main.querySelector(".feed")?.classList.add("hints-off");
+  }
 }
 
 let searchTimer = 0;
 main.addEventListener("input", (e) => {
   const t = e.target as HTMLInputElement;
   if (t.id !== "search") return;
+  main.querySelector<HTMLElement>("#clear-search")!.hidden = !t.value;
   clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(() => {
-    const r = parseRoute();
-    history.replaceState(null, "", libraryHash(t.value.trim(), r.cat));
-    render();
-  }, 120);
+  searchTimer = window.setTimeout(() => setFilters({ q: t.value.trim() }), 140);
+});
+main.addEventListener("change", (e) => {
+  const t = e.target as HTMLSelectElement;
+  if (t.id === "sort") setFilters({ sort: t.value as Sort });
 });
 
-let lastTap = { slug: "", t: 0 };
-main.addEventListener("click", async (e) => {
+// Shared handler for the page and the filter panel.
+async function onClick(e: MouseEvent) {
   const t = e.target as HTMLElement;
+  const f = parseRoute().f;
 
-  const chip = t.closest<HTMLButtonElement>("[data-cat]");
-  if (chip) {
-    const r = parseRoute();
-    const cat = chip.dataset.cat === r.cat ? "" : chip.dataset.cat!;
-    history.replaceState(null, "", libraryHash(r.q, cat));
-    focusIndex = 0;
-    render();
-    chip.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  if (t.closest("[data-close-panel]")) return closePanel();
+  if (t.closest("#open-filters")) return panelOpen() ? closePanel() : openPanel();
+  if (t.closest("[data-clear-all]")) {
+    tagQuery = "";
+    return setFilters({ q: "", cat: "", tags: [], sort: "featured" });
+  }
+  if (t.closest("#clear-search")) {
+    e.preventDefault();
+    return setFilters({ q: "" });
+  }
+  const cat = t.closest<HTMLElement>("[data-cat]");
+  if (cat) return setFilters({ cat: f.cat === cat.dataset.cat ? "" : cat.dataset.cat! });
+  const tag = t.closest<HTMLElement>("[data-tag]");
+  if (tag) {
+    const v = tag.dataset.tag!;
+    const fromFeed = !!tag.closest(".post-tags");
+    setFilters({ tags: f.tags.includes(v) ? f.tags.filter((x) => x !== v) : [...f.tags, v] });
+    if (fromFeed) window.scrollTo({ top: main.querySelector<HTMLElement>("#bar")!.offsetTop - 8, behavior: "smooth" });
     return;
   }
+  const sort = t.closest<HTMLElement>("[data-sort]");
+  if (sort) return setFilters({ sort: sort.dataset.sort as Sort });
   const lay = t.closest<HTMLButtonElement>("[data-layout]");
   if (lay) {
     layout = lay.dataset.layout as Layout;
-    try {
-      localStorage.setItem("op-view", layout);
-    } catch {}
-    render();
-    return;
-  }
-  if (t.closest("#search-toggle")) {
-    const bar = main.querySelector("#bar")!;
-    const on = bar.classList.toggle("searching");
-    if (on) main.querySelector<HTMLInputElement>("#search")!.focus();
-    else if (parseRoute().q) {
-      history.replaceState(null, "", libraryHash("", parseRoute().cat));
-      render();
-    }
-    return;
+    store.set("op-view", layout);
+    return render();
   }
   const dl = t.closest<HTMLElement>("[data-download]");
   if (dl) {
@@ -472,40 +561,25 @@ main.addEventListener("click", async (e) => {
       if (navigator.share) await navigator.share({ title: `${p.name} — free preset`, url });
       else {
         await navigator.clipboard.writeText(url);
-        (await import("./util")).toast("Link copied");
+        toast("Link copied");
       }
     } catch {}
     return;
   }
-  const tag = t.closest<HTMLElement>("[data-tag]");
-  if (tag) {
-    history.replaceState(null, "", libraryHash(tag.dataset.tag!, ""));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    render();
-    return;
-  }
-  // Feed: double-tap a photo to download (like a double-tap like).
   const media = t.closest<HTMLElement>(".post-media");
-  if (media) {
-    const now = Date.now();
-    if (lastTap.slug === media.dataset.slug && now - lastTap.t < 320) {
-      const p = bySlug(media.dataset.slug);
-      if (p) {
-        burst(media);
-        downloadPreset(p);
-      }
-      lastTap = { slug: "", t: 0 };
-    } else lastTap = { slug: media.dataset.slug!, t: now };
-    return;
+  if (media) return toggleOriginal(media);
+  if (t.closest("#zip")) {
+    const btn = t.closest<HTMLButtonElement>("#zip")!;
+    btn.disabled = true;
+    return void downloadZip(current, f.cat ? f.cat.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "all").finally(() => (btn.disabled = false));
   }
   const tile = t.closest<HTMLElement>(".tile");
-  if (tile) {
-    selectFocus(Number(tile.dataset.k));
-    return;
-  }
+  if (tile) return selectFocus(Number(tile.dataset.k));
   const card = t.closest<HTMLElement>(".card");
   if (card && !t.closest("a")) location.hash = `#/preset/${encodeURIComponent(card.dataset.slug!)}`;
-});
+}
+main.addEventListener("click", onClick);
+panel.addEventListener("click", onClick);
 
 // Focus view: hover and keyboard
 main.addEventListener("pointerover", (e) => {
@@ -517,7 +591,20 @@ main.addEventListener("focusin", (e) => {
   if (tile && Number(tile.dataset.k) !== focusIndex) selectFocus(Number(tile.dataset.k));
 });
 document.addEventListener("keydown", (e) => {
-  if (!main.querySelector(".focus") || (e.target as HTMLElement).tagName === "INPUT") return;
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes((e.target as HTMLElement).tagName);
+  if (e.key === "Escape" && panelOpen()) return closePanel();
+  if (e.key === "/" && !typing && parseRoute().view === "library") {
+    e.preventDefault();
+    main.querySelector<HTMLInputElement>("#search")?.focus();
+    return;
+  }
+  // Feed photos are buttons: Enter / Space flip them.
+  const media = (e.target as HTMLElement).closest?.<HTMLElement>(".post-media");
+  if (media && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    return toggleOriginal(media);
+  }
+  if (!main.querySelector(".focus") || typing || panelOpen()) return;
   const step = (d: number) => {
     selectFocus(focusIndex + d);
     main.querySelector<HTMLElement>(`.tile[data-k="${focusIndex}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -529,7 +616,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 mobileQuery.addEventListener("change", () => parseRoute().view === "library" && render());
-window.addEventListener("resize", movePill);
 window.addEventListener("hashchange", render);
 
 // Theme toggle (cross-fade where supported)
@@ -538,9 +624,7 @@ document.getElementById("theme-toggle")!.addEventListener("click", () => {
   const dark = root.dataset.theme === "dark" || (!root.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   const flip = () => {
     root.dataset.theme = dark ? "light" : "dark";
-    try {
-      localStorage.setItem("op-theme", root.dataset.theme);
-    } catch {}
+    store.set("op-theme", root.dataset.theme);
   };
   const d = document as Document & { startViewTransition?: (cb: () => void) => unknown };
   if (d.startViewTransition) d.startViewTransition(flip);
@@ -554,21 +638,19 @@ const legalLink = document.getElementById("foot-legal") as HTMLAnchorElement;
 legalLink.href = legalContactHref();
 if (config.contactEmail) legalLink.removeAttribute("target");
 
-// zip button
-main.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("#zip");
-  if (!btn) return;
-  const r = parseRoute();
-  btn.disabled = true;
-  downloadZip(current, r.cat ? r.cat.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "all").finally(() => (btn.disabled = false));
-});
-
 initCompare();
-initPeek();
 render();
-document.fonts?.ready.then(movePill);
+// ?stress=1000 duplicates the sample data so large-library behaviour can be checked locally.
+const stress = Number(new URLSearchParams(location.search).get("stress")) || 0;
 loadPresets(config.presetsCsvUrl)
-  .then((list) => (presets = list))
+  .then((list) => {
+    presets = list;
+    for (let i = 0; presets.length < stress; i++) {
+      const b = list[i % list.length];
+      const n = presets.length + 1;
+      presets.push({ ...b, id: `OP-${n}`, slug: `${b.slug}-${n}`, name: `${b.name} ${n}`, downloads: (n * 37) % 500 });
+    }
+  })
   .catch((err: Error) => (loadError = err.message))
   .finally(() => {
     loaded = true;

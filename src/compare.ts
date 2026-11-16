@@ -89,28 +89,3 @@ export function initCompare() {
     }
   });
 }
-
-/** Mobile feed: press and hold a photo to see the original. */
-export function initPeek() {
-  let timer = 0;
-  let active: HTMLElement | null = null;
-  const end = () => {
-    clearTimeout(timer);
-    active?.classList.remove("peek");
-    active = null;
-  };
-  document.addEventListener("pointerdown", (e) => {
-    const m = (e.target as HTMLElement).closest<HTMLElement>(".post-media");
-    if (!m) return;
-    active = m;
-    timer = window.setTimeout(() => {
-      m.classList.add("peek");
-      navigator.vibrate?.(8);
-    }, 140);
-  });
-  document.addEventListener("pointerup", end);
-  document.addEventListener("pointercancel", end);
-  document.addEventListener("contextmenu", (e) => {
-    if ((e.target as HTMLElement).closest(".post-media")) e.preventDefault();
-  });
-}
