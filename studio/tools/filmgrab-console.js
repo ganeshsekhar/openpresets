@@ -1,11 +1,12 @@
 /*
- * OpenPresets — save one film's stills from film-grab.com as local references.
+ * OpenPresets — save 5 random stills from one film-grab.com film as local references.
  *
  * How to use
  *   1. Open ONE film page you picked, e.g. https://film-grab.com/2026/11/16/fantasia/
  *   2. Open the browser console (Cmd+Option+J in Chrome), paste this whole file, press Enter.
  *   3. Allow "download multiple files" if the browser asks.
- *   4. Files land in your Downloads folder:  <film>_01.jpg … plus <film>.json (film info + sources).
+ *   4. Files land in your Downloads folder: 5 random stills named by their gallery number
+ *      (e.g. <film>_07.jpg, <film>_23.jpg …) plus <film>.json (film info + sources).
  *      Move them to ~/OpenPresets-data/refs/film-grab/<film>/ (Studio will import from there).
  *   Stop at any time:  window.__opStop = true
  *
@@ -16,8 +17,8 @@
  *     Film titles and credits never go into preset names or site copy.
  */
 (async () => {
+  const PER_FILM = 5; // random stills to take from this film
   const DELAY_MS = 3500; // polite pace; keep >= 3000
-  const MAX_IMAGES = 80; // safety cap per film
 
   if (!/(^|\.)film-grab\.com$/.test(location.hostname)) {
     console.warn("[OpenPresets] Run this on a film-grab.com film page.");
@@ -52,8 +53,14 @@
     console.warn("[OpenPresets] No gallery stills found on this page.");
     return;
   }
-  const list = urls.slice(0, MAX_IMAGES);
-  console.log(`[OpenPresets] ${title}: ${list.length} stills, ~${Math.round((list.length * DELAY_MS) / 1000)}s. Stop with window.__opStop = true`);
+  // Pick PER_FILM random stills; keep their original gallery numbers.
+  const order = urls.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const picks = order.slice(0, Math.min(PER_FILM, urls.length)).sort((a, b) => a - b);
+  console.log(`[OpenPresets] ${title}: taking ${picks.length} random of ${urls.length} stills (#${picks.map((i) => i + 1).join(", #")}), ~${Math.round((picks.length * DELAY_MS) / 1000)}s. Stop with window.__opStop = true`);
 
   const save = (blob, name) => {
     const a = document.createElement("a");
@@ -68,12 +75,13 @@
 
   // --- download one at a time ----------------------------------------------
   const files = [];
-  for (let i = 0; i < list.length; i++) {
+  for (let k = 0; k < picks.length; k++) {
     if (window.__opStop) {
       console.warn("[OpenPresets] Stopped.");
       break;
     }
-    const url = list[i];
+    const i = picks[k];
+    const url = urls[i];
     const ext = (url.split("?")[0].match(/\.(jpe?g|png|webp)$/i)?.[1] || "jpg").toLowerCase();
     const name = `${slug}_${String(i + 1).padStart(2, "0")}.${ext}`;
     try {
@@ -84,12 +92,12 @@
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       save(await res.blob(), name);
-      files.push({ file: name, source: url.split("?")[0] });
-      console.log(`[OpenPresets] ${i + 1}/${list.length} ${name}`);
+      files.push({ file: name, source: url.split("?")[0], still: i + 1 });
+      console.log(`[OpenPresets] ${k + 1}/${picks.length} ${name}`);
     } catch (e) {
       console.warn(`[OpenPresets] Skipped ${url}: ${e.message}`);
     }
-    if (i < list.length - 1) await sleep(DELAY_MS);
+    if (k < picks.length - 1) await sleep(DELAY_MS);
   }
 
   // --- provenance file ------------------------------------------------------
@@ -99,6 +107,7 @@
     title,
     slug,
     meta,
+    totalStills: urls.length,
     fetchedAt: new Date().toISOString(),
     files,
     note: "Local colour reference only. Not for publication. See docs/legal-protocol.md.",
