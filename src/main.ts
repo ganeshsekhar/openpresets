@@ -116,6 +116,7 @@ function shellHTML(): string {
       </div>
       <div class="stats" id="stats"></div>
     </section>
+    <div id="bar-sentinel" aria-hidden="true"></div>
     <div class="bar glass" id="bar">
       <label class="search">${ICON.search}
         <input id="search" type="search" placeholder="Search looks — warm, film, moody…" autocomplete="off" aria-label="Search presets">
@@ -142,8 +143,18 @@ function shellHTML(): string {
   </div>`;
 }
 
+// The toolbar gets a more solid pane once it is stuck over content (see .bar.stuck).
+const stuckObserver = new IntersectionObserver(
+  ([e]) => main.querySelector("#bar")?.classList.toggle("stuck", !e.isIntersecting && e.boundingClientRect.top < 0),
+  { rootMargin: "-12px 0px 0px 0px" },
+);
+
 function renderLibrary(f: Filters) {
-  if (!main.querySelector("[data-view=library]")) main.innerHTML = shellHTML();
+  if (!main.querySelector("[data-view=library]")) {
+    main.innerHTML = shellHTML();
+    stuckObserver.disconnect();
+    stuckObserver.observe(main.querySelector("#bar-sentinel")!);
+  }
   const $ = <T extends HTMLElement>(s: string) => main.querySelector<T>(s)!;
 
   const search = $<HTMLInputElement>("#search");
