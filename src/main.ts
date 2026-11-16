@@ -212,15 +212,23 @@ function renderLibrary(f: Filters) {
 function quickHTML(f: Filters): string {
   const active: string[] = [];
   if (f.cat) active.push(`<button class="qchip on" type="button" data-cat="${esc(f.cat)}" aria-label="Remove ${esc(f.cat)}">${esc(f.cat)}</button>`);
-  for (const t of f.tags) active.push(`<button class="qchip on" type="button" data-tag="${esc(t)}" aria-label="Remove #${esc(t)}">#${esc(t)}</button>`);
+  for (const t of f.tags) active.push(`<button class="qchip on" type="button" data-tag="${esc(t)}" aria-label="Remove ${esc(t)}">${esc(t)}</button>`);
   if (active.length > 1) active.push(`<button class="qchip reset" type="button" data-clear-all>Clear all</button>`);
 
   const suggestions: string[] = [];
   if (!f.cat) for (const [c, n] of categoryCounts(current).slice(0, 6)) suggestions.push(`<button class="qchip" type="button" data-cat="${esc(c)}">${esc(c)} <small>${n}</small></button>`);
   const tagLimit = isMobile() ? 8 : 10;
   for (const [t, n] of tagCounts(current).filter(([t, n]) => !f.tags.includes(t) && n < current.length).slice(0, tagLimit))
-    suggestions.push(`<button class="qchip" type="button" data-tag="${esc(t)}">#${esc(t)} <small>${n}</small></button>`);
+    suggestions.push(`<button class="qchip" type="button" data-tag="${esc(t)}">${esc(t)} <small>${n}</small></button>`);
   return active.join("") + suggestions.join("");
+}
+
+// Clickable chips: style first, then tags. Active filters are highlighted.
+function tagChips(p: Preset, wrap = false): string {
+  const f = parseRoute().f;
+  const cat = `<button class="tagchip cat${f.cat === p.category ? " on" : ""}" type="button" data-cat="${esc(p.category)}">${esc(p.category)}</button>`;
+  const tags = p.tags.filter((t) => t !== p.category.toLowerCase()).map((t) => `<button class="tagchip${f.tags.includes(t) ? " on" : ""}" type="button" data-tag="${esc(t)}">${esc(t)}</button>`);
+  return `<div class="tagrow${wrap ? " multi" : ""}">${cat}${tags.join("")}</div>`;
 }
 
 const stagger = (i: number, step = 25) => `animation-delay:${Math.min(i % PAGE, 15) * step}ms`;
@@ -229,7 +237,7 @@ function cardHTML(p: Preset, i: number): string {
   return `<article class="card" data-slug="${esc(p.slug)}" style="${stagger(i)}">
     <div class="ba">${layers(p, { eager: i < 10 })}<span class="ba-rule"></span><span class="ba-label">Before ← → After</span>
       <button class="chip-dl" type="button" data-download="${esc(p.slug)}" aria-label="Download ${esc(p.name)} preset">${ICON.download}<span class="t">Download</span></button></div>
-    <div class="cap"><h3><a href="${presetHref(p)}">${esc(p.name)}</a></h3><span>${esc(p.category)}</span></div>
+    <div class="cap"><h3><a href="${presetHref(p)}">${esc(p.name)}</a></h3>${tagChips(p)}</div>
   </article>`;
 }
 
@@ -256,7 +264,7 @@ function postHTML(p: Preset, i: number): string {
       <button class="icon" type="button" data-share="${esc(p.slug)}" aria-label="Share ${esc(p.name)}">${ICON.share}</button>
     </div>
     <p class="post-cap"><b>OpenPresets</b> ${esc(p.description)}</p>
-    <div class="post-tags">${p.tags.map((t) => `<button type="button" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>
+    <div class="post-tags">${tagChips(p, true)}</div>
   </article>`;
 }
 
@@ -301,7 +309,7 @@ function paintPanel() {
       <section class="fgroup"><h4>Tags</h4>
         <input class="fsearch" id="tag-search" placeholder="Find a tag…" value="${esc(tagQuery)}" autocomplete="off">
         <div class="fopts">${shownTags
-          .map(([t, n]) => `<button class="qchip${f.tags.includes(t) ? " on" : ""}" type="button" data-tag="${esc(t)}">#${esc(t)}${n ? ` <small>${n}</small>` : ""}</button>`)
+          .map(([t, n]) => `<button class="qchip${f.tags.includes(t) ? " on" : ""}" type="button" data-tag="${esc(t)}">${esc(t)}${n ? ` <small>${n}</small>` : ""}</button>`)
           .join("") || '<span class="muted small">No tags match.</span>'}</div></section>
       <section class="fgroup"><h4>Sort</h4><div class="fopts">${SORTS.map(
         (s) => `<button class="qchip${f.sort === s.id ? " on" : ""}" type="button" data-sort="${s.id}">${s.label}</button>`,
@@ -398,7 +406,7 @@ function renderPreset(slug: string) {
         <p class="muted">${esc(p.description)}</p>
         <div class="chips">
           <a class="chip" href="${filtersHash({ cat: p.category })}">${esc(p.category)}</a>
-          ${p.tags.map((t) => `<a class="chip" href="${filtersHash({ tags: [t] })}">#${esc(t)}</a>`).join("")}
+          ${p.tags.map((t) => `<a class="chip" href="${filtersHash({ tags: [t] })}">${esc(t)}</a>`).join("")}
         </div>
         <button class="btn btn-primary" style="padding:15px" type="button" data-download="${esc(p.slug)}">${ICON.download} Download .xmp — free</button>
         <p class="hint">CC0 · by ${esc(p.author || "OpenPresets")} · Classic, desktop &amp; mobile</p>

@@ -229,9 +229,19 @@ p { margin: 0; }
 .chip-dl:hover { background: rgb(255 255 255 / 0.92); color: #111; }
 .chip-dl:active { transform: scale(0.95); }
 .chip-dl.ok, .chip-dl.ok:hover { background: var(--accent); color: var(--accent-ink); }
-.cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 9px; }
-.cap h3 { font-family: var(--serif); font-size: 21px; line-height: 1.1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cap span { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* Preset names: Geist semibold for easy reading at small sizes; serif is kept for big headlines. */
+.name { font-family: var(--sans); font-weight: 600; letter-spacing: -0.012em; }
+.cap { margin-top: 10px; min-width: 0; }
+.cap h3 { font-family: var(--sans); font-weight: 600; font-size: 15px; line-height: 1.3; letter-spacing: -0.012em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap h3 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Tag chips: clickable filters, single line, fade out instead of wrapping. */
+.tagrow { display: flex; gap: 5px; margin-top: 7px; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.tagrow.multi { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+.tagchip { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--muted); background: var(--fill); white-space: nowrap; transition: background 0.2s, color 0.2s, transform 0.2s var(--spring); }
+.tagchip:hover { background: var(--accent-soft); color: var(--accent); }
+.tagchip:active { transform: scale(0.95); }
+.tagchip.on { background: var(--accent); color: var(--accent-ink); }
+.tagchip.cat { color: var(--ink); }
 
 /* ---------- focus view ---------- */
 .focus { display: grid; grid-template-columns: minmax(340px, 40%) minmax(0, 1fr); gap: 20px; padding-bottom: 64px; align-items: start; }
@@ -260,7 +270,7 @@ kbd { font: 11px var(--sans); padding: 1px 5px; border: 1px solid var(--line); b
 .tile[aria-current="true"] { background: var(--fill); }
 .tile[aria-current="true"] .thumb { box-shadow: 0 0 0 2px var(--accent); }
 .tile:focus-visible .thumb { box-shadow: 0 0 0 2px var(--accent); }
-.tile b { display: block; font-family: var(--serif); font-weight: 400; font-size: 18px; line-height: 1.1; margin: 7px 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile b { display: block; font-family: var(--sans); font-weight: 600; font-size: 13.5px; line-height: 1.3; letter-spacing: -0.01em; margin: 7px 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile small { display: block; margin: 0 4px 2px; color: var(--muted); font-size: 11px; }
 
 /* ---------- mobile feed ---------- */
@@ -268,7 +278,7 @@ kbd { font: 11px var(--sans); padding: 1px 5px; border: 1px solid var(--line); b
 .post { animation: rise 0.5s var(--ease) both; }
 .post-head { display: flex; align-items: center; gap: 10px; padding: 0 2px 10px; }
 .avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--bg); flex: none; }
-.post-head b { display: block; font-family: var(--serif); font-weight: 400; font-size: 20px; line-height: 1.1; }
+.post-head b { display: block; font-family: var(--sans); font-weight: 600; font-size: 15px; line-height: 1.25; letter-spacing: -0.012em; }
 .post-head small { display: block; color: var(--muted); font-size: 11.5px; }
 .post-head .more { margin-left: auto; padding: 6px 10px; border-radius: 999px; font-size: 12px; color: var(--muted); border: 1px solid var(--line); }
 /* Tap to flip between the preset and the original, with a wipe. */
@@ -298,8 +308,7 @@ kbd { font: 11px var(--sans); padding: 1px 5px; border: 1px solid var(--line); b
 .post-actions .grow { flex: 1; }
 .post-cap { padding: 0 2px; font-size: 13.5px; }
 .post-cap b { font-weight: 600; }
-.post-tags { padding: 4px 2px 0; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; color: var(--muted); }
-.post-tags button:hover { color: var(--ink); }
+.post-tags { padding: 8px 2px 0; }
 
 /* ---------- empty + band ---------- */
 .empty { text-align: center; padding: 56px 16px; border: 1px dashed var(--line); border-radius: 18px; margin-bottom: 56px; }
