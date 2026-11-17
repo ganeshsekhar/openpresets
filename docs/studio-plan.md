@@ -4,7 +4,7 @@ The local admin dashboard plus the agents that turn film stills into presets.
 Runs on the owner's Mac (later the Mac mini). Never deployed. Everything is
 started by a button; nothing runs on a schedule.
 
-Status: M1 (References), M2 (Categorize) and M3 (Batches + Review) built. M4+ planned. Decisions below were made with the owner on
+Status: M1 (References), M2 (Categorize), M3 (Processing: build batch + review) and M4 (Library + Publish) built. M5 planned. Decisions below were made with the owner on
 2026-11-16.
 
 ## Decisions
@@ -140,11 +140,26 @@ Built from a blocklist plus every film title and credit in the local database.
   source: rules/claude/owner), batches, drafts (versioned settings),
   presets, test_photos, rules, events (provenance).
 
-## Publishing
+## Publishing (M4, built)
 
-Publish writes `public/presets.csv` (later JSON), renders before/after WebP
-previews into `public/previews/`, updates `CREDITS.md`, commits and pushes.
-The owner pressing Publish is the approval for that data push.
+Studio's **Library** step lists every approved preset with its site state
+(Not on site / New / Updated / Live / Removing). Three owner-driven steps:
+
+1. **Choose:** "Add to site" / "Remove from site", and pick up to 4 test
+   photos per preset (the first is the cover).
+2. **Stage:** regenerates `public/presets.csv` from the listed presets only
+   (so the old placeholders disappear on the first publish), renders WebP
+   previews (`public/previews/photos/<photo>.webp` = shared "before",
+   `public/previews/<OP-id>/<photo>.webp` = "after", 1200 px) and rewrites
+   `CREDITS.md` per photo. Nothing leaves the Mac; "Preview site locally"
+   starts the site's dev server on port 5199. "Discard" restores those paths.
+3. **Publish live:** runs `npm run build`, commits only `public/presets.csv`,
+   `public/previews` and `CREDITS.md`, and pushes `main`. The owner's click
+   (with a confirm listing the changes) is the approval for that data push.
+
+New CSV columns: `Good For`, `Mood`, `Gallery`
+(`subject::beforePath::afterPath|…`, relative paths). `Category` holds the
+first Good For value for older code. Public IDs start at OP-101.
 
 Site follow-up: switch browsing to "Good for" + Mood facets; migrate the 24
 placeholder presets into Studio.

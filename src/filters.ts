@@ -1,5 +1,6 @@
 // Filter model built to scale to thousands of presets: free-text search,
-// one style (category), any number of tags, and a sort order. All of it
+// one "Good for" and one "Mood" value (or, for sheets without those columns,
+// one style/category), any number of tags, and a sort order. All of it
 // lives in the URL so filtered views can be shared.
 import type { Preset } from "./data";
 
@@ -14,6 +15,8 @@ export const SORTS: { id: Sort; label: string }[] = [
 export interface Filters {
   q: string;
   cat: string;
+  good: string;
+  mood: string;
   tags: string[];
   sort: Sort;
 }
@@ -23,6 +26,8 @@ export function readFilters(params: URLSearchParams): Filters {
   return {
     q: params.get("q") ?? "",
     cat: params.get("cat") ?? "",
+    good: params.get("good") ?? "",
+    mood: params.get("mood") ?? "",
     tags: (params.get("tags") ?? "").split(",").map((t) => t.trim()).filter(Boolean),
     sort: SORTS.some((s) => s.id === sort) ? sort : "featured",
   };
@@ -32,21 +37,26 @@ export function filtersHash(f: Partial<Filters>): string {
   const p = new URLSearchParams();
   if (f.q) p.set("q", f.q);
   if (f.cat) p.set("cat", f.cat);
+  if (f.good) p.set("good", f.good);
+  if (f.mood) p.set("mood", f.mood);
   if (f.tags?.length) p.set("tags", f.tags.join(","));
   if (f.sort && f.sort !== "featured") p.set("sort", f.sort);
   const s = p.toString();
   return `#/${s ? `?${s}` : ""}`;
 }
 
-export const activeCount = (f: Filters) => (f.cat ? 1 : 0) + f.tags.length + (f.sort !== "featured" ? 1 : 0);
+export const activeCount = (f: Filters) =>
+  (f.cat ? 1 : 0) + (f.good ? 1 : 0) + (f.mood ? 1 : 0) + f.tags.length + (f.sort !== "featured" ? 1 : 0);
 
 export function applyFilters(all: Preset[], f: Filters): Preset[] {
   const terms = f.q.toLowerCase().split(/\s+/).filter(Boolean);
   const list = all.filter((p) => {
     if (f.cat && p.category !== f.cat) return false;
+    if (f.good && !p.goodFor.includes(f.good)) return false;
+    if (f.mood && !p.mood.includes(f.mood)) return false;
     if (f.tags.length && !f.tags.every((t) => p.tags.includes(t))) return false;
     if (!terms.length) return true;
-    const hay = `${p.name} ${p.category} ${p.description} ${p.tags.join(" ")}`.toLowerCase();
+    const hay = `${p.name} ${p.category} ${p.goodFor.join(" ")} ${p.mood.join(" ")} ${p.description} ${p.tags.join(" ")}`.toLowerCase();
     return terms.every((t) => hay.includes(t));
   });
   if (f.sort === "az") list.sort((a, b) => a.name.localeCompare(b.name));
@@ -63,4 +73,8 @@ export function counts(values: string[]): [string, number][] {
 }
 
 export const categoryCounts = (list: Preset[]) => counts(list.map((p) => p.category));
+export const goodForCounts = (list: Preset[]) => counts(list.flatMap((p) => p.goodFor));
+export const moodCounts = (list: Preset[]) => counts(list.flatMap((p) => p.mood));
+/** New-format sheets (Good For / Mood) replace the Category facet; old ones keep it. */
+export const hasMoodFacets = (list: Preset[]) => list.some((p) => p.goodFor.length > 0 || p.mood.length > 0);
 export const tagCounts = (list: Preset[]) => counts(list.flatMap((p) => p.tags));

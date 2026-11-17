@@ -91,6 +91,13 @@ const MIGRATIONS = [
      note TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );`,
+  // 4 — M4 publish: which approved drafts are on the site, their photos, and what is live.
+  `ALTER TABLE drafts ADD COLUMN preset_id TEXT;            -- public ID, OP-101…
+   ALTER TABLE drafts ADD COLUMN gallery_json TEXT;         -- test photo files, cover first (max 4)
+   ALTER TABLE drafts ADD COLUMN listed INTEGER NOT NULL DEFAULT 0; -- owner wants it on the site
+   ALTER TABLE drafts ADD COLUMN published_at TEXT;         -- last pushed live
+   ALTER TABLE drafts ADD COLUMN published_hash TEXT;       -- content at last push
+   ALTER TABLE drafts ADD COLUMN first_published_at TEXT;`,
 ];
 
 export type DB = DatabaseSync;

@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DATA_DIR, DB_PATH, HOST, PORT, REFS_DIR, THUMBS_DIR } from "./config.ts";
-import { openDb } from "./db.ts";
+import { logEvent, openDb } from "./db.ts";
 import { importRefs, isInside } from "./importer.ts";
 import { categorize, getSetting, LOOK_DEFAULTS, setSetting } from "./categorize.ts";
 import { claudePass, PER_SHEET, unclearRefs, type ClaudeResult } from "./claude.ts";
@@ -17,11 +17,14 @@ import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
 import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, retiredPresent, testDir } from "./testphotos.ts";
 import { presetToXmp } from "../../src/xmp.ts";
 import { refineDraft } from "./refine.ts";
+import { discardStaged, library, publishLive, repoChanges, setGallery, setListed, stage, startSitePreview, stopSitePreview } from "./publish.ts";
 
-const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+// OP_REPO lets tests point publishing at a throwaway clone instead of this repo.
+const REPO_ROOT = process.env.OP_REPO ?? fileURLToPath(new URL("../../", import.meta.url));
 const RENDERS_DIR = join(DATA_DIR, "renders");
 let lastBatch: { at: string; batchId?: number; drafts: number; errors: string[] } | null = null;
 let lastRefine: { at: string; draftId: number; ok: boolean; message: string } | null = null;
+let lastPublish: { at: string; kind: "stage" | "live"; ok: boolean; message: string; detail?: unknown } | null = null;
 
 // Live reload: the browser tab reloads when the server restarts (new boot id)
 // or when files in ui/ change. Server code changes restart Node via --watch.
@@ -145,6 +148,7 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
       size: BATCH_SIZE,
       toReview: open ? n(`SELECT COUNT(*) AS n FROM drafts WHERE batch_id = ${open.id} AND status = 'draft'`) : 0,
       running: !!job,
+      toPublish: library(db, DATA_DIR).pending,
     });
   }],
 
@@ -476,7 +480,49 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     send(res, 202, { started: true });
   }],
 
-  ["GET", /^\/api\/job$/, (_q, res) => send(res, 200, { job, lastRefine, lastBatch })],
+  ["GET", /^\/api\/job$/, (_q, res) => send(res, 200, { job, lastRefine, lastBatch, lastPublish })],
+
+  // ---------- M4: library + publish ----------
+  ["GET", /^\/api\/library$/, async (_q, res) => {
+    let staged: string[] = [];
+    try { staged = await repoChanges(REPO_ROOT); } catch {}
+    send(res, 200, { ...library(db, DATA_DIR), staged, job, lastPublish, photos: listTestPhotos(DATA_DIR) });
+  }],
+  ["POST", /^\/api\/library\/list$/, async (req, res) => {
+    const { ids, listed } = await readBody(req) as { ids: number[]; listed: boolean };
+    setListed(db, (ids ?? []).map(Number), !!listed);
+    send(res, 200, { ok: true });
+  }],
+  ["POST", /^\/api\/library\/(\d+)\/gallery$/, async (req, res, m) => {
+    const { files } = await readBody(req) as { files: string[] };
+    try { setGallery(db, DATA_DIR, Number(m[1]), files ?? []); send(res, 200, { ok: true }); }
+    catch (e) { send(res, 400, { error: (e as Error).message }); }
+  }],
+  ["POST", /^\/api\/library\/stage$/, (_q, res) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    job = { label: "Staging site files", progress: "Starting…" };
+    stage(db, DATA_DIR, REPO_ROOT, (msg) => { if (job) job.progress = msg; })
+      .then((r) => { lastPublish = { at: new Date().toISOString(), kind: "stage", ok: true, message: `Staged ${r.presets} presets (${r.images} images)`, detail: r }; })
+      .catch((e) => { lastPublish = { at: new Date().toISOString(), kind: "stage", ok: false, message: (e as Error).message }; })
+      .finally(() => { job = null; });
+    send(res, 202, { started: true });
+  }],
+  ["POST", /^\/api\/library\/discard$/, async (_q, res) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    await discardStaged(REPO_ROOT);
+    logEvent(db, "publish-discarded", {});
+    send(res, 200, { ok: true });
+  }],
+  ["POST", /^\/api\/library\/preview$/, async (_q, res) => send(res, 200, { url: await startSitePreview(REPO_ROOT) })],
+  ["POST", /^\/api\/library\/publish$/, (_q, res) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    job = { label: "Publishing", progress: "Starting…" };
+    publishLive(db, DATA_DIR, REPO_ROOT, (msg) => { if (job) job.progress = msg; })
+      .then((r) => { lastPublish = { at: new Date().toISOString(), kind: "live", ok: true, message: `Live: ${r.sha}`, detail: r }; })
+      .catch((e) => { lastPublish = { at: new Date().toISOString(), kind: "live", ok: false, message: (e as Error).message }; })
+      .finally(() => { job = null; });
+    send(res, 202, { started: true });
+  }],
 
   ["GET", /^\/api\/drafts\/(\d+)\/xmp$/, (_q, res, m) => {
     const d = draftRow(Number(m[1]));
@@ -549,6 +595,9 @@ const server = createServer(async (req, res) => {
   }
   send(res, 404, { error: "Not found" });
 });
+
+for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { stopSitePreview(); process.exit(0); });
+process.on("exit", () => stopSitePreview());
 
 server.listen(PORT, HOST, () => {
   console.log(`OpenPresets Studio → http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);

@@ -1,4 +1,5 @@
 import { renderReview, flushReview } from "/ui/review.js";
+import { loadLibrary } from "/ui/library.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -338,6 +339,7 @@ async function setExcluded(id, excluded) {
 async function reload() {
   if (state.route === "categorize") await loadCategorize();
   else if (state.route === "batches") await loadBatches();
+  else if (state.route === "library") await loadLibrary({ api, toast, refreshNav });
   else await loadRefs();
 }
 
@@ -345,9 +347,9 @@ function route() {
   flushReview().catch(() => {});
   const h = location.hash.slice(1);
   if (h.startsWith("batches") || h.startsWith("review")) return location.replace(`#processing${h.includes("/") ? h.slice(h.indexOf("/")) : ""}`);
-  state.route = h === "categorize" ? "categorize" : h.startsWith("processing") ? "batches" : "refs";
+  state.route = h === "categorize" ? "categorize" : h.startsWith("processing") ? "batches" : h.startsWith("library") ? "library" : "refs";
   state.reviewId = Number(h.split("/")[1]) || null;
-  for (const v of ["refs", "categorize", "batches"]) $(`#view-${v}`).hidden = state.route !== v;
+  for (const v of ["refs", "categorize", "batches", "library"]) $(`#view-${v}`).hidden = state.route !== v;
   document.querySelectorAll("[data-route]").forEach((a) =>
     a.dataset.route === state.route ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
   );
@@ -884,6 +886,8 @@ async function refreshNav() {
     set("#nb-categorize", n.unclear ? String(n.unclear) : "", n.unclear ? "warn" : "");
     $("#nb-categorize").title = n.unclear ? `${n.unclear} unclear stills` : "";
     set("#nb-batches", n.running ? "…" : n.toReview ? String(n.toReview) : n.queued ? `${n.queued}/${n.size}` : "", n.running || n.toReview ? "hot" : "");
+    set("#nb-library", n.toPublish ? String(n.toPublish) : "", n.toPublish ? "hot" : "");
+    $("#nb-library").title = n.toPublish ? `${n.toPublish} changes waiting to publish` : "";
     $("#nb-batches").title = n.running ? "Drafting" : n.toReview ? `${n.toReview} drafts to review` : n.queued ? `${n.queued} of ${n.size} chosen` : "";
   } catch {}
 }

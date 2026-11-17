@@ -357,6 +357,36 @@ kbd { font: 11px var(--sans); padding: 1px 5px; border: 1px solid var(--line); b
 .compare .tag.l { left: 12px; } .compare .tag.r { right: 12px; }
 .compare-range { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; margin: 0; }
 .compare:has(.compare-range:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+/* ---------- example-photo galleries (focus stage, detail, mobile feed) ---------- */
+.gal { position: relative; }
+.gal-slide[hidden] { display: none; }
+.stage .gal, .stage .gal-slide { position: absolute; inset: 0; }
+.gal-slide { animation: gal-in 0.35s var(--ease) both; }
+@keyframes gal-in { from { opacity: 0.4; } }
+/* Subject label + dots, centred at the top between the Before / After tags. White on smoke keeps AA over any photo. */
+.gal-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 180px); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; z-index: 2; }
+.post-media .gal-bar { max-width: calc(100% - 24px); top: 10px; }
+.gal-subject { max-width: 100%; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.4; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--smoke); -webkit-backdrop-filter: var(--smoke-blur); backdrop-filter: var(--smoke-blur); box-shadow: var(--smoke-edge); }
+.gal-subject[hidden] { display: none; }
+.gal-dots { display: flex; padding: 0 3px; border-radius: 999px; pointer-events: auto;
+  background: var(--smoke); -webkit-backdrop-filter: var(--smoke-blur); backdrop-filter: var(--smoke-blur); box-shadow: var(--smoke-edge); }
+.gal-dot { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 999px; }
+.gal-dot::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: rgb(255 255 255 / 0.55); transition: width 0.3s var(--ease), background 0.2s; }
+.gal-dot:hover::before { background: rgb(255 255 255 / 0.85); }
+.gal-dot[aria-current]::before { width: 16px; background: #fff; }
+.gal-dot:focus-visible, .gal-nav:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.gal-nav { position: absolute; top: 50%; z-index: 2; width: 40px; height: 40px; margin-top: -20px; display: grid; place-items: center; border-radius: 50%; color: #fff;
+  background: var(--smoke); -webkit-backdrop-filter: var(--smoke-blur); backdrop-filter: var(--smoke-blur); box-shadow: var(--smoke-edge); opacity: 0.8; transition: opacity 0.2s, background 0.2s, transform 0.2s var(--spring); }
+.gal-nav.prev { left: 12px; } .gal-nav.next { right: 12px; }
+.gal:hover .gal-nav, .gal-nav:focus-visible { opacity: 1; }
+.gal-nav:hover { background: rgb(12 12 12 / 0.74); }
+.gal-nav:active { transform: scale(0.92); }
+/* Feed: native horizontal swipe between pairs; a tap still flips edited / original on every pair. */
+.pm-track { position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.pm-track::-webkit-scrollbar { display: none; }
+.pm-slide { position: relative; flex: 0 0 100%; overflow: hidden; scroll-snap-align: start; scroll-snap-stop: always; }
 .side { display: flex; flex-direction: column; gap: 16px; }
 @media (min-width: 900px) { .side { position: sticky; top: 20px; } }
 .side h1 { font-family: var(--serif); font-size: clamp(46px, 6vw, 76px); line-height: 0.92; letter-spacing: -0.02em; }

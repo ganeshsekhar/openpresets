@@ -1,13 +1,16 @@
 import "./style.css";
-import { afterLayer, compareHTML, initCompare, layers } from "./compare";
+import { afterLayer, galleryBar, galleryCompareHTML, initCompare, layers, pairsOf, showGalleryPair, syncGalleryBar } from "./compare";
 import { config } from "./config";
-import { loadPresets, type Preset } from "./data";
+import { loadPresets, slugify, type Preset } from "./data";
 import { downloadPreset, downloadZip } from "./download";
 import {
   activeCount,
   applyFilters,
   categoryCounts,
   filtersHash,
+  goodForCounts,
+  hasMoodFacets,
+  moodCounts,
   readFilters,
   SORTS,
   tagCounts,
@@ -21,6 +24,8 @@ const main = document.getElementById("main")!;
 let presets: Preset[] = [];
 let loadError: string | null = null;
 let loaded = false;
+// New-format sheets (Good For / Mood columns) get those facets instead of Category.
+let moodFacets = false;
 
 const SITE_TITLE = "OpenPresets — Open-source Lightroom preset library";
 const PAGE = 40; // presets rendered per batch; more load as you scroll
@@ -229,11 +234,17 @@ function renderLibrary(f: Filters) {
 function quickHTML(f: Filters): string {
   const active: string[] = [];
   if (f.cat) active.push(`<button class="qchip on" type="button" data-cat="${esc(f.cat)}" aria-label="Remove ${esc(f.cat)}">${esc(f.cat)}</button>`);
+  if (f.good) active.push(`<button class="qchip on" type="button" data-good="${esc(f.good)}" aria-label="Remove ${esc(f.good)}">${esc(f.good)}</button>`);
+  if (f.mood) active.push(`<button class="qchip on" type="button" data-mood="${esc(f.mood)}" aria-label="Remove ${esc(f.mood)}">${esc(f.mood)}</button>`);
   for (const t of f.tags) active.push(`<button class="qchip on" type="button" data-tag="${esc(t)}" aria-label="Remove ${esc(t)}">${esc(t)}</button>`);
   if (active.length > 1) active.push(`<button class="qchip reset" type="button" data-clear-all>Clear all</button>`);
 
   const suggestions: string[] = [];
-  if (!f.cat) for (const [c, n] of categoryCounts(current).slice(0, 6)) suggestions.push(`<button class="qchip" type="button" data-cat="${esc(c)}">${esc(c)} <small>${n}</small></button>`);
+  const chip = (attr: string, v: string, n: number) => `<button class="qchip" type="button" data-${attr}="${esc(v)}">${esc(v)} <small>${n}</small></button>`;
+  if (moodFacets) {
+    if (!f.good) for (const [v, n] of goodForCounts(current).filter(([, n]) => n < current.length).slice(0, 4)) suggestions.push(chip("good", v, n));
+    if (!f.mood) for (const [v, n] of moodCounts(current).filter(([, n]) => n < current.length).slice(0, 3)) suggestions.push(chip("mood", v, n));
+  } else if (!f.cat) for (const [c, n] of categoryCounts(current).slice(0, 6)) suggestions.push(chip("cat", c, n));
   const tagLimit = isMobile() ? 8 : 10;
   for (const [t, n] of tagCounts(current).filter(([t, n]) => !f.tags.includes(t) && n < current.length).slice(0, tagLimit))
     suggestions.push(`<button class="qchip" type="button" data-tag="${esc(t)}">${esc(t)} <small>${n}</small></button>`);
@@ -243,9 +254,17 @@ function quickHTML(f: Filters): string {
 // Clickable chips: style first, then tags. Active filters are highlighted.
 function tagChips(p: Preset, wrap = false): string {
   const f = parseRoute().f;
-  const cat = `<button class="tagchip cat${f.cat === p.category ? " on" : ""}" type="button" data-cat="${esc(p.category)}">${esc(p.category)}</button>`;
-  const tags = p.tags.filter((t) => t !== p.category.toLowerCase()).map((t) => `<button class="tagchip${f.tags.includes(t) ? " on" : ""}" type="button" data-tag="${esc(t)}">${esc(t)}</button>`);
-  return `<div class="tagrow${wrap ? " multi" : ""}">${cat}${tags.join("")}</div>`;
+  const chip = (attr: string, v: string, on: boolean, cls = "") =>
+    `<button class="tagchip${cls}${on ? " on" : ""}" type="button" data-${attr}="${esc(v)}">${esc(v)}</button>`;
+  const lead =
+    moodFacets && (p.goodFor.length || p.mood.length)
+      ? [...p.goodFor.map((v) => chip("good", v, f.good === v, " cat")), ...p.mood.map((v) => chip("mood", v, f.mood === v))]
+      : p.category
+        ? [chip("cat", p.category, f.cat === p.category, " cat")]
+        : [];
+  const seen = new Set([p.category, ...p.goodFor, ...p.mood].map((v) => v.toLowerCase()));
+  const tags = p.tags.filter((t) => !seen.has(t)).map((t) => chip("tag", t, f.tags.includes(t)));
+  return `<div class="tagrow${wrap ? " multi" : ""}">${lead.join("")}${tags.join("")}</div>`;
 }
 
 const stagger = (i: number, step = 25) => `animation-delay:${Math.min(i % PAGE, 15) * step}ms`;
@@ -266,14 +285,20 @@ function tileHTML(p: Preset, i: number): string {
 function postHTML(p: Preset, i: number): string {
   // Hint only on the first three posts, and only until the visitor has tried it once.
   const hint = i < 3 && !hintsSeen ? `<span class="tap-hint"><i></i>Tap to see the original</span>` : "";
+  const pairs = pairsOf(p);
+  const multi = pairs.length > 1;
   return `<article class="post" data-slug="${esc(p.slug)}" style="${stagger(i, 40)}">
     <header class="post-head">
       <span class="avatar">${ICON.mark}</span>
       <div><b>${esc(p.name)}</b><small>${esc(p.category)} · ${esc(p.id)}</small></div>
       <a class="more" href="${presetHref(p)}">Details</a>
     </header>
-    <div class="post-media" data-slug="${esc(p.slug)}" role="button" tabindex="0" aria-pressed="false" aria-label="${esc(p.name)}: tap to switch between edited and original">
-      ${layers(p, { eager: i < 2 })}<span class="wipe"></span>
+    <div class="post-media${multi ? " multi" : ""}" data-slug="${esc(p.slug)}" role="button" tabindex="0" aria-pressed="false" aria-label="${esc(p.name)}: tap to switch between edited and original${multi ? `, swipe for ${pairs.length} example photos` : ""}">
+      ${
+        multi
+          ? `<div class="pm-track">${pairs.map((g, k) => `<div class="pm-slide">${layers(p, { pair: g, eager: k === 0 && i < 2 })}</div>`).join("")}</div>`
+          : layers(p, { eager: i < 2 })
+      }${galleryBar(p)}<span class="wipe"></span>
       <span class="flip" aria-hidden="true"><span class="a">Edited</span><span class="b">Original</span></span>${hint}
     </div>
     <div class="post-actions">
@@ -313,16 +338,20 @@ const panelOpen = () => panel.classList.contains("open");
 function paintPanel() {
   const f = parseRoute().f;
   // Counts reflect everything except the facet itself, so options never dead-end.
-  const forCats = applyFilters(presets, { ...f, cat: "" });
   const forTags = applyFilters(presets, { ...f, tags: [] });
-  const cats = categoryCounts(forCats);
+  const facet = (title: string, attr: "cat" | "good" | "mood", list: [string, number][]) =>
+    `<section class="fgroup"><h4>${title}</h4><div class="fopts">${list
+      .map(([c, n]) => `<button class="qchip${f[attr] === c ? " on" : ""}" type="button" data-${attr}="${esc(c)}">${esc(c)} <small>${n}</small></button>`)
+      .join("")}</div></section>`;
+  const facets = moodFacets
+    ? facet("Good for", "good", goodForCounts(applyFilters(presets, { ...f, good: "" }))) +
+      facet("Mood", "mood", moodCounts(applyFilters(presets, { ...f, mood: "" })))
+    : facet("Style", "cat", categoryCounts(applyFilters(presets, { ...f, cat: "" })));
   const tags = tagCounts(forTags).filter(([t]) => !tagQuery || t.includes(tagQuery.toLowerCase()));
   const shownTags = [...f.tags.map((t) => [t, 0] as [string, number]), ...tags.filter(([t]) => !f.tags.includes(t)).slice(0, 40)];
   panel.innerHTML = `<header><h3>Filters</h3><button class="icon-btn" type="button" data-close-panel aria-label="Close">${ICON.close}</button></header>
     <div class="fbody">
-      <section class="fgroup"><h4>Style</h4><div class="fopts">${cats
-        .map(([c, n]) => `<button class="qchip${f.cat === c ? " on" : ""}" type="button" data-cat="${esc(c)}">${esc(c)} <small>${n}</small></button>`)
-        .join("")}</div></section>
+      ${facets}
       <section class="fgroup"><h4>Tags</h4>
         <input class="fsearch" id="tag-search" placeholder="Find a tag…" value="${esc(tagQuery)}" autocomplete="off">
         <div class="fopts">${shownTags
@@ -374,7 +403,7 @@ function selectFocus(i: number, animate = true) {
   const stage = main.querySelector<HTMLElement>("#stage");
   if (!stage) return;
   const paint = () => {
-    stage.innerHTML = `${compareHTML(p, { eager: true })}
+    stage.innerHTML = `${galleryCompareHTML(p, { eager: true })}
       <div class="stage-card">
         <div class="meta">${esc(p.id)} · ${esc(p.category)} · CC0</div>
         <h2>${esc(p.name).split(" ").map((w, k) => `<span class="w" style="animation-delay:${k * 45}ms">${w}</span>`).join(" ")}</h2>
@@ -414,15 +443,21 @@ function renderPreset(slug: string) {
   main.innerHTML = `<a class="back" href="${lastLibraryHash}">← All presets</a>
     <div class="detail">
       <div>
-        ${compareHTML(p, { eager: true })}
-        <p class="hint" style="margin-top:10px">${p.afterUrl ? "Drag to compare." : "Drag to compare. Preview is an approximation until real before/after exports are added."}</p>
+        ${galleryCompareHTML(p, { eager: true })}
+        <p class="hint" style="margin-top:10px">${p.afterUrl ? "Drag to compare." : "Drag to compare. Preview is an approximation until real before/after exports are added."}${p.gallery.length > 1 ? ` Use the arrows to see it on ${p.gallery.length} photos.` : ""}</p>
       </div>
       <aside class="side">
         <span class="muted small">${esc(p.id)} · ${esc(p.category)}</span>
         <h1>${esc(p.name)}</h1>
         <p class="muted">${esc(p.description)}</p>
         <div class="chips">
-          <a class="chip" href="${filtersHash({ cat: p.category })}">${esc(p.category)}</a>
+          ${
+            moodFacets && (p.goodFor.length || p.mood.length)
+              ? [...p.goodFor.map((v) => `<a class="chip" href="${filtersHash({ good: v })}">${esc(v)}</a>`), ...p.mood.map((v) => `<a class="chip" href="${filtersHash({ mood: v })}">${esc(v)}</a>`)].join("")
+              : p.category
+                ? `<a class="chip" href="${filtersHash({ cat: p.category })}">${esc(p.category)}</a>`
+                : ""
+          }
           ${p.tags.map((t) => `<a class="chip" href="${filtersHash({ tags: [t] })}">${esc(t)}</a>`).join("")}
         </div>
         <button class="btn btn-primary" style="padding:15px" type="button" data-download="${esc(p.slug)}">${ICON.download} Download .xmp — free</button>
@@ -547,14 +582,36 @@ async function onClick(e: MouseEvent) {
   if (t.closest("#open-filters")) return panelOpen() ? closePanel() : openPanel();
   if (t.closest("[data-clear-all]")) {
     tagQuery = "";
-    return setFilters({ q: "", cat: "", tags: [], sort: "featured" });
+    return setFilters({ q: "", cat: "", good: "", mood: "", tags: [], sort: "featured" });
   }
   if (t.closest("#clear-search")) {
     e.preventDefault();
     return setFilters({ q: "" });
   }
-  const cat = t.closest<HTMLElement>("[data-cat]");
-  if (cat) return setFilters({ cat: f.cat === cat.dataset.cat ? "" : cat.dataset.cat! });
+  // Gallery paging (before the photo-tap and card handlers that sit underneath).
+  const galStep = t.closest<HTMLElement>("[data-gal-step]");
+  if (galStep) {
+    const gal = galStep.closest<HTMLElement>("[data-gal]")!;
+    return showGalleryPair(gal, (Number(gal.dataset.i) || 0) + Number(galStep.dataset.galStep));
+  }
+  const galGo = t.closest<HTMLElement>("[data-gal-go]");
+  if (galGo) {
+    const k = Number(galGo.dataset.galGo);
+    const gal = galGo.closest<HTMLElement>("[data-gal]");
+    if (gal) return showGalleryPair(gal, k);
+    const track = galGo.closest(".post-media")?.querySelector<HTMLElement>(".pm-track");
+    track?.scrollTo({ left: k * track.clientWidth, behavior: "smooth" });
+    return;
+  }
+  const facetBtn = t.closest<HTMLElement>("[data-cat], [data-good], [data-mood]");
+  if (facetBtn) {
+    const key = "cat" in facetBtn.dataset ? "cat" : "good" in facetBtn.dataset ? "good" : "mood";
+    const v = facetBtn.dataset[key]!;
+    const fromFeed = !!facetBtn.closest(".post-tags");
+    setFilters({ [key]: f[key] === v ? "" : v });
+    if (fromFeed) window.scrollTo({ top: main.querySelector<HTMLElement>("#bar")!.offsetTop - 8, behavior: "smooth" });
+    return;
+  }
   const tag = t.closest<HTMLElement>("[data-tag]");
   if (tag) {
     const v = tag.dataset.tag!;
@@ -601,7 +658,7 @@ async function onClick(e: MouseEvent) {
   if (t.closest("#zip")) {
     const btn = t.closest<HTMLButtonElement>("#zip")!;
     btn.disabled = true;
-    return void downloadZip(current, f.cat ? f.cat.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "all").finally(() => (btn.disabled = false));
+    return void downloadZip(current, slugify(f.good || f.mood || f.cat) || "all").finally(() => (btn.disabled = false));
   }
   const tile = t.closest<HTMLElement>(".tile");
   if (tile) return selectFocus(Number(tile.dataset.k));
@@ -634,6 +691,13 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     return toggleOriginal(media);
   }
+  // Feed photos with a gallery: left / right page through the example photos.
+  const track = media?.querySelector<HTMLElement>(".pm-track");
+  if (track && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    track.scrollBy({ left: (e.key === "ArrowRight" ? 1 : -1) * track.clientWidth, behavior: "smooth" });
+    return;
+  }
   if (!main.querySelector(".focus") || typing || panelOpen()) return;
   const step = (d: number) => {
     selectFocus(focusIndex + d);
@@ -644,6 +708,18 @@ document.addEventListener("keydown", (e) => {
   else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey) downloadPreset(current[focusIndex]);
   else if (e.key === "Enter" && current[focusIndex]) location.hash = presetHref(current[focusIndex]);
 });
+
+// Feed galleries scroll natively (swipe); keep the dots and subject label in step.
+document.addEventListener(
+  "scroll",
+  (e) => {
+    const track = e.target as HTMLElement;
+    if (!(track instanceof HTMLElement) || !track.classList.contains("pm-track")) return;
+    const media = track.closest<HTMLElement>(".post-media");
+    if (media) syncGalleryBar(media, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)));
+  },
+  { capture: true, passive: true },
+);
 
 mobileQuery.addEventListener("change", () => parseRoute().view === "library" && render());
 window.addEventListener("hashchange", render);
@@ -674,6 +750,7 @@ const stress = Number(new URLSearchParams(location.search).get("stress")) || 0;
 loadPresets(config.presetsCsvUrl)
   .then((list) => {
     presets = list;
+    moodFacets = hasMoodFacets(list);
     for (let i = 0; presets.length < stress; i++) {
       const b = list[i % list.length];
       const n = presets.length + 1;
