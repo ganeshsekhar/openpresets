@@ -1,4 +1,5 @@
-import { createReadStream, existsSync, watch } from "node:fs";
+import { createReadStream, existsSync, readFileSync, watch } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -483,6 +484,13 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
       writeFileSync(out, await renderFile(path, d.settings as Settings, w));
     }
     sendFile(res, out, "public, max-age=31536000, immutable");
+  }],
+
+  // The renderer core, type-stripped, so the Review screen can preview live in the browser.
+  ["GET", /^\/ui\/renderer-core\.js$/, (_q, res) => {
+    const src = readFileSync(fileURLToPath(new URL("./renderer-core.ts", import.meta.url)), "utf8");
+    res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache" });
+    res.end(stripTypeScriptTypes(src));
   }],
 
   ["GET", /^\/thumb\/([0-9a-f]{64})\.webp$/, (_q, res, m) => {

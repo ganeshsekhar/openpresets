@@ -1,3 +1,4 @@
+import { renderReview, flushReview } from "/ui/review.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -319,15 +320,16 @@ async function setExcluded(id, excluded) {
 async function reload() {
   if (state.route === "categorize") await loadCategorize();
   else if (state.route === "batches") await loadBatches();
-  else if (state.route === "review") await loadReview();
   else await loadRefs();
 }
 
 function route() {
+  flushReview().catch(() => {});
   const h = location.hash.slice(1);
-  state.route = h === "categorize" ? "categorize" : h === "batches" ? "batches" : h.startsWith("review") ? "review" : "refs";
+  if (h.startsWith("batches") || h.startsWith("review")) return location.replace(`#processing${h.includes("/") ? h.slice(h.indexOf("/")) : ""}`);
+  state.route = h === "categorize" ? "categorize" : h.startsWith("processing") ? "batches" : "refs";
   state.reviewId = Number(h.split("/")[1]) || null;
-  for (const v of ["refs", "categorize", "batches", "review"]) $(`#view-${v}`).hidden = state.route !== v;
+  for (const v of ["refs", "categorize", "batches"]) $(`#view-${v}`).hidden = state.route !== v;
   document.querySelectorAll("[data-route]").forEach((a) =>
     a.dataset.route === state.route ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
   );
@@ -508,6 +510,7 @@ async function loadBatches() {
   state.batch = b;
   state.tp = tp;
   renderBatches();
+  await renderOpenReview();
   if (b.job) pollBatchJob();
 }
 
@@ -544,8 +547,10 @@ function renderBatches() {
   const runAction = open ? "" : `<button class="btn ${current === 3 ? "primary" : ""}" type="button" data-act="run" ${b.blockers.length || busy ? "disabled" : ""} title="${esc(b.blockers[0] ?? "")}">${busy ? "Running…" : `Run batch${hasQueue ? ` (${b.queue.length})` : ""}`}</button>`;
 
   const reviewStatus = open ? (toReview ? `${toReview} of ${open.drafts.length} drafts to review.` : "All decided.") : "Approve, tweak or reject each draft.";
-  const reviewAction = open ? `<a class="btn ${current === 4 ? "primary" : ""}" href="#review">Review drafts</a>` : "";
+  const reviewAction = open ? `<button class="btn ${current === 4 ? "primary" : ""}" type="button" data-act="goto-review">Review below</button>` : "";
 
+  $("#view-batches").classList.toggle("reviewing", !!open);
+  $("#flow").classList.toggle("compact", !!open);
   $("#flow").innerHTML =
     flowStep(1, st(1), "Test photos", tpStatus, tpAction) +
     flowStep(2, st(2), "Choose stills", chooseStatus, chooseAction) +
@@ -574,16 +579,12 @@ function renderBatches() {
           <span>In Categorize, hover a still and click “+ Batch”, or add a whole look group.</span></a>
       </div>`;
 
-  // Open batch drafts
+  // Open batch: the review workspace lives here (rendered by renderOpenReview)
   $("#open-sec").hidden = !open;
   if (open) {
-    const first = tp.photos[0]?.file;
+    $("#open-title").textContent = `Review batch #${open.id}`;
     $("#open-note").textContent = `${open.drafts.length} drafts · ${toReview} to review`;
-    $("#open-drafts").innerHTML = open.drafts
-      .map((x) => `<a class="draft-card" href="#review/${x.id}">${first ? `<img src="/render/${x.id}/${encodeURIComponent(first)}?w=480&h=${x.hash}" alt="" loading="lazy" />` : ""}
-        <div><b>${esc(x.name)}</b><span class="status ${x.status}">${x.status === "draft" ? "to review" : x.status}</span></div></a>`)
-      .join("");
-  }
+  } else $("#review").innerHTML = "";
 
   // Test photos
   $("#tp-note").textContent = `${tp.photos.length} photos${tp.photos.filter((p) => !p.credit).length ? ` · ${tp.photos.filter((p) => !p.credit).length} missing a credit` : ""}`;
@@ -619,90 +620,34 @@ async function pollBatchJob() {
 }
 
 // =====================================================================
-// Review (M3)
+// Review inside Processing (live preview lives in review.js)
 // =====================================================================
-async function loadReview() {
-  const [b, tp, sliders, taxonomy] = await Promise.all([
-    api("/api/batch"), api("/api/testphotos"), state.sliders ?? api("/api/sliders"), state.cat.taxonomy.length ? state.cat.taxonomy : api("/api/tags"),
-  ]);
-  Object.assign(state, { batch: b, tp, sliders });
-  state.cat.taxonomy = taxonomy;
-  const drafts = b.open?.drafts ?? [];
-  const id = state.reviewId ?? drafts.find((d) => d.status === "draft")?.id ?? drafts[0]?.id;
-  state.draft = id ? await api(`/api/drafts/${id}`) : null;
-  renderReview();
-}
-
-function sliderValue(s, key) {
-  const v = Number(state.draft.settings[key] ?? 0);
-  return Number.isFinite(v) ? v : 0;
-}
-
-function renderReview() {
-  const box = $("#review");
-  const drafts = state.batch.open?.drafts ?? [];
-  const d = state.draft;
-  if (!d) {
-    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><h2>Nothing to review</h2><p>Run a batch from <a href="#batches">Batches</a>. Drafts appear here until every one is approved or rejected.</p></div>`;
-    return;
-  }
-  const photos = state.tp.photos;
-  const groups = [...new Set(state.sliders.map((s) => s.group))];
-  const mono = String(d.settings.ConvertToGrayscale ?? "").toLowerCase() === "true";
-  box.innerHTML = `
-    <nav class="rv-list">${drafts.map((x) => `<a href="#review/${x.id}" ${x.id === d.id ? 'aria-current="page"' : ""}><span>${esc(x.name)}</span><span class="status ${x.status}">${x.status === "draft" ? "•" : x.status === "approved" ? "✓" : "✕"}</span></a>`).join("")}</nav>
-    <section class="rv-main">
-      <h1>${esc(d.name)}</h1>
-      <p class="muted">${esc(d.description)}</p>
-      <div class="rv-refs">${d.refs.map((r) => `<figure><img src="/thumb/${r.sha256}.webp" alt="" /><figcaption>Reference · ${esc(r.title)}${r.stillNo != null ? ` #${r.stillNo}` : ""}</figcaption></figure>`).join("")}</div>
-      <p class="muted small">Press and hold a photo to see it without the preset. Renders are an approximation of Lightroom.</p>
-      <div class="renders">${photos.map((p) => `<div class="render" data-render>
-          <img src="/render/${d.id}/${encodeURIComponent(p.file)}?w=640&h=${d.hash}" alt="" />
-          <img class="before-img" src="/testphoto/${encodeURIComponent(p.file)}?w=640" alt="" />
-          <span>${esc(p.subject)}</span></div>`).join("")}</div>
-    </section>
-    <aside class="rv-side">
-      <label class="f">Name<input type="text" id="rv-name" value="${esc(d.name)}" maxlength="60" /></label>
-      ${d.nameIssues.length ? `<div class="issue">Name contains “${esc(d.nameIssues[0])}” (film, credit or brand). Rename before approving.</div>` : ""}
-      <label class="f">Description<textarea id="rv-desc" maxlength="300">${esc(d.description)}</textarea></label>
-      <div class="chips">${d.tags.map((t) => `<span class="chip">${esc(t.value)}</span>`).join("")}</div>
-      <div class="rv-actions">
-        <button class="btn primary" type="button" data-rv="approved" ${d.status === "approved" ? "disabled" : ""}>${d.status === "approved" ? "Approved ✓" : "Approve"}</button>
-        <button class="btn" type="button" data-rv="rejected" ${d.status === "rejected" ? "disabled" : ""}>${d.status === "rejected" ? "Rejected" : "Reject"}</button>
-        <a class="btn" href="/api/drafts/${d.id}/xmp">Export .xmp</a>
-        <button class="btn" type="button" data-rv="draft" ${d.status === "draft" ? "disabled" : ""}>Back to draft</button>
-      </div>
-      <label class="check small"><input type="checkbox" id="rv-lr" ${d.lrVerified ? "checked" : ""} /> Checked in Lightroom</label>
-      <details class="sl-group"><summary>Refine with Claude (optional)</summary>
-        <label class="f">Note for Claude (optional)<textarea id="rv-note" placeholder="e.g. softer blacks, less green, keep skin natural"></textarea></label>
-        <button class="btn" type="button" id="rv-refine" style="margin-top:6px">Refine with Claude</button>
-        <p class="muted small" id="rv-refine-msg">Uses your Claude plan via Claude Code on this Mac. Runs only when you click.</p>
-      </details>
-      <div>${groups.map((g, gi) => {
-        const items = state.sliders.filter((s) => s.group === g);
-        if (mono && (g === "Colour grading" || g === "Colour mixer")) return "";
-        return `<details class="sl-group" ${gi < 3 ? "open" : ""}><summary>${esc(g)}</summary>${items.map((s) => {
-          const v = sliderValue(d.settings, s.key);
-          return `<div class="sl"><span>${esc(s.label)}</span><span class="v" id="v-${s.key}">${v}</span>
-            <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" data-slider="${s.key}" aria-label="${esc(s.label)}" /></div>`;
-        }).join("")}</details>`;
-      }).join("")}</div>
-      <div><b class="small">Versions</b><div class="versions">${d.versions.map((v) => `<button type="button" data-restore="${v.version}" ${v.version === d.version ? "disabled" : ""}>v${v.version} · ${esc(v.source)}${v.note ? ` · ${esc(v.note)}` : ""}${v.version === d.version ? " (current)" : ""}</button>`).join("")}</div></div>
-    </aside>`;
-}
-
-async function updateDraft(body, msg) {
-  try {
-    state.draft = { ...(await api(`/api/drafts/${state.draft.id}`, { method: "POST", body })), versions: state.draft.versions };
-    state.draft = await api(`/api/drafts/${state.draft.id}`);
-    const b = await api("/api/batch");
-    state.batch = b.open ? b : { ...b, open: state.batch.open };
-    renderReview();
-    if (msg) toast(msg);
-    if (!b.open && state.batch.open) toast("Batch closed: every draft is decided. Run the next batch when ready.");
-  } catch (e) {
-    toast(e.message);
-  }
+async function renderOpenReview(fresh = false) {
+  const open = state.batch.open;
+  if (!open) return;
+  const drafts = open.drafts;
+  const id = drafts.some((d) => d.id === state.reviewId) ? state.reviewId : drafts.find((d) => d.status === "draft")?.id ?? drafts[0]?.id;
+  if (!id) return;
+  const draft = await api(`/api/drafts/${id}`);
+  renderReview($("#review"), {
+    drafts, draft, photos: state.tp.photos, fresh,
+    ctx: {
+      api, toast,
+      onChanged: () => refreshNav(),
+      reload: async (advance, keepId) => {
+        const wasOpen = state.batch.open;
+        const b = await api("/api/batch");
+        state.batch = b;
+        if (!b.open && wasOpen) toast("Batch closed: every draft is decided. Run the next batch when ready.");
+        let next = keepId ?? id;
+        if (advance && b.open) next = b.open.drafts.find((d) => d.status === "draft" && d.id !== id)?.id ?? id;
+        state.reviewId = next;
+        if (location.hash !== `#processing/${next}`) history.replaceState(null, "", `#processing/${next}`);
+        renderBatches();
+        await renderOpenReview(true);
+      },
+    },
+  });
 }
 
 // ---------- events for batches + review ----------
@@ -726,42 +671,7 @@ document.addEventListener("click", async (e) => {
     await api(`/api/queue/${un.dataset.unqueue}`, { method: "DELETE" });
     return loadBatches();
   }
-  const rv = t.closest("[data-rv]");
-  if (rv) {
-    const status = rv.dataset.rv;
-    let rejectReason;
-    if (status === "rejected") {
-      rejectReason = prompt("Why reject it? (optional, helps tune future drafts)") ?? "";
-    }
-    return updateDraft({ status, rejectReason }, status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Back to draft");
-  }
-  const restore = t.closest("[data-restore]");
-  if (restore) return updateDraft({ restoreVersion: Number(restore.dataset.restore) }, `Restored v${restore.dataset.restore}`);
 });
-
-
-// Sliders: live value while dragging, save on release.
-document.addEventListener("input", (e) => {
-  const s = e.target.closest?.("[data-slider]");
-  if (s) $(`#v-${s.dataset.slider}`).textContent = s.value;
-});
-document.addEventListener("change", (e) => {
-  const s = e.target.closest?.("[data-slider]");
-  if (s && state.draft) {
-    const settings = { ...state.draft.settings, [s.dataset.slider]: Number(s.value) };
-    if (Number(s.value) === 0) delete settings[s.dataset.slider];
-    return updateDraft({ settings });
-  }
-  if (e.target.id === "rv-lr") return updateDraft({ lrVerified: e.target.checked }, e.target.checked ? "Marked as checked in Lightroom" : "");
-});
-document.addEventListener("focusout", (e) => {
-  if (!state.draft) return;
-  if (e.target.id === "rv-name" && e.target.value.trim() && e.target.value.trim() !== state.draft.name) updateDraft({ name: e.target.value.trim() }, "Name saved");
-  if (e.target.id === "rv-desc" && e.target.value !== state.draft.description) updateDraft({ description: e.target.value }, "Description saved");
-});
-// Press and hold a render to compare with the original photo.
-document.addEventListener("pointerdown", (e) => e.target.closest?.("[data-render]")?.classList.add("show-before"));
-for (const ev of ["pointerup", "pointercancel", "pointerleave"]) document.addEventListener(ev, () => document.querySelectorAll(".render.show-before").forEach((r) => r.classList.remove("show-before")), true);
 
 // Claude refine for the open draft.
 document.addEventListener("click", async (e) => {
@@ -781,7 +691,7 @@ document.addEventListener("click", async (e) => {
         break;
       }
     }
-    if (state.route === "review") await loadReview();
+    if (state.route === "batches") { state.batch = await api("/api/batch"); await renderOpenReview(true); }
   } catch (err) {
     toast(err.message);
   }
@@ -803,6 +713,7 @@ document.addEventListener("click", async (e) => {
   const act = e.target.closest?.("[data-act]");
   if (!act || act.disabled) return;
   const a = act.dataset.act;
+  if (a === "goto-review") { $("#open-sec").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   if (a === "toggle-tp") { const d = $("#tp-sec"); d.open = !d.open; d.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   try {
     if (a === "suggest") {
@@ -837,8 +748,7 @@ async function refreshNav() {
     const set = (id, text, cls = "") => { const el = $(id); el.textContent = text; el.className = cls; };
     set("#nb-refs", n.refs ? String(n.refs) : "");
     set("#nb-categorize", n.unclear ? `${n.unclear} unclear` : "", n.unclear ? "warn" : "");
-    set("#nb-batches", n.running ? "running" : n.queued ? `${n.queued}/${n.size}` : "", n.running ? "hot" : "");
-    set("#nb-review", n.toReview ? String(n.toReview) : "", n.toReview ? "hot" : "");
+    set("#nb-batches", n.running ? "running" : n.toReview ? `${n.toReview} to review` : n.queued ? `${n.queued}/${n.size}` : "", n.running || n.toReview ? "hot" : "");
   } catch {}
 }
 refreshNav();

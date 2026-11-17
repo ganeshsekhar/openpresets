@@ -16,9 +16,8 @@
       <nav class="steps-nav">
         <a href="#refs" data-route="refs"><i>1</i><span>References</span><b id="nb-refs"></b></a>
         <a href="#categorize" data-route="categorize"><i>2</i><span>Categorize</span><b id="nb-categorize"></b></a>
-        <a href="#batches" data-route="batches"><i>3</i><span>Batches</span><b id="nb-batches"></b></a>
-        <a href="#review" data-route="review"><i>4</i><span>Review</span><b id="nb-review"></b></a>
-        <span class="soon"><i>5</i><span>Publish</span><b>M4</b></span>
+        <a href="#processing" data-route="batches"><i>3</i><span>Processing</span><b id="nb-batches"></b></a>
+        <span class="soon"><i>4</i><span>Publish</span><b>M4</b></span>
       </nav>
       <p class="side-foot">Local only · never deployed</p>
     </aside>
@@ -79,7 +78,7 @@
     <main id="view-batches" hidden>
       <header class="top">
         <div>
-          <h1>Batches</h1>
+          <h1>Processing</h1>
           <p class="muted">Turn stills into draft presets, up to 10 at a time. Nothing runs until you press Run.</p>
         </div>
       </header>
@@ -92,10 +91,9 @@
         <div id="queue"></div>
       </section>
 
-      <section class="card-sec" id="open-sec" hidden>
-        <div class="sec-head"><h2>Drafts in this batch</h2><span class="muted small" id="open-note"></span>
-          <span class="grow"></span><a class="btn primary" href="#review">Review drafts</a></div>
-        <div class="draft-grid" id="open-drafts"></div>
+      <section class="card-sec rv-sec" id="open-sec" hidden>
+        <div class="sec-head"><h2 id="open-title">Review batch</h2><span class="muted small" id="open-note"></span></div>
+        <div class="review" id="review"></div>
       </section>
 
       <details class="card-sec tp-details" id="tp-sec">
@@ -108,10 +106,6 @@
         <div class="sec-head"><h2>History</h2></div>
         <div id="closed"></div>
       </section>
-    </main>
-
-    <main id="view-review" hidden>
-      <div class="review" id="review"></div>
     </main>
 
     <div class="lightbox" id="lightbox" hidden>
