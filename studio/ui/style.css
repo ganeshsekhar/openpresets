@@ -608,3 +608,10 @@ body:has(#cat-tray:not([hidden])) .facets { max-height: calc(100vh - 120px); }
 .tp-kind { position: absolute; left: 5px; top: 5px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: #fff; background: rgb(0 0 0 / 0.55); }
 .tp-fig figcaption .warn { display: block; }
 .tp-fig.flagged img { outline: 2px solid rgb(178 106 0 / 0.6); outline-offset: -2px; }
+/* Narrow windows: the sidebar becomes a top bar */
+@media (max-width: 760px) {
+  .nav-label { display: none; }
+  .steps-nav a[aria-current="page"]::before { left: 10px; right: 10px; top: auto; bottom: -2px; width: auto; height: 2px; border-radius: 2px; }
+  .side-bottom { display: none; }
+  .tray { left: 12px; }
+}

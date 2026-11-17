@@ -5,11 +5,11 @@
 // (grey-world white balance, black/white levels, mid-tone and saturation).
 // Bases are cached in <data>/test-photos/.neutral/ and used for previews,
 // fitting, Claude refine and the published before/after images.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 
-export const NEUTRAL_VERSION = 2;
+export const NEUTRAL_VERSION = 3;
 
 export interface Neutral {
   v: number;
@@ -117,7 +117,9 @@ export async function neutralFor(testDir: string, file: string): Promise<Neutral
   } catch {}
   const n = await measureFile(src);
   mkdirSync(neutralDir(testDir), { recursive: true });
-  writeFileSync(cache, JSON.stringify({ mtime, n }));
+  const tmp = `${cache}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ mtime, n }));
+  renameSync(tmp, cache);
   return n;
 }
 
@@ -129,9 +131,21 @@ export async function basePath(testDir: string, file: string): Promise<string> {
   const src = join(testDir, file);
   const out = join(neutralDir(testDir), `${file.replace(/\.[^.]+$/, "")}.v${NEUTRAL_VERSION}.jpg`);
   if (existsSync(out) && statSync(out).mtimeMs >= statSync(src).mtimeMs) return out;
-  const n = await neutralFor(testDir, file);
-  const { data, info } = await sharp(src).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  applyNeutral(data, info.width, info.height, info.channels, n);
-  await sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).jpeg({ quality: 92 }).toFile(out);
-  return out;
+  // Many previews request the same base at once: build it once, and only
+  // expose it when complete (temp file + rename), so nobody reads half a JPEG.
+  let p = building.get(out);
+  if (!p) {
+    p = (async () => {
+      const n = await neutralFor(testDir, file);
+      const { data, info } = await sharp(src).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      applyNeutral(data, info.width, info.height, info.channels, n);
+      const tmp = `${out}.${process.pid}.${Date.now()}.tmp`;
+      await sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).jpeg({ quality: 92 }).toFile(tmp);
+      renameSync(tmp, out);
+      return out;
+    })().finally(() => building.delete(out));
+    building.set(out, p);
+  }
+  return p;
 }
+const building = new Map<string, Promise<string>>();
