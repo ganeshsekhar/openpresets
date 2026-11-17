@@ -14,9 +14,9 @@
       <div class="brand">Open<i>Presets</i> <span>Studio</span></div>
       <p class="nav-label">Workflow</p>
       <nav class="steps-nav">
-        <a href="#refs" data-route="refs"><i>1</i><span>References</span><b id="nb-refs"></b></a>
-        <a href="#categorize" data-route="categorize"><i>2</i><span>Categorize</span><b id="nb-categorize"></b></a>
-        <a href="#processing" data-route="batches"><i>3</i><span>Processing</span><b id="nb-batches"></b></a>
+        <a href="#refs" title="References" data-route="refs"><i>1</i><span>References</span><b id="nb-refs"></b></a>
+        <a href="#categorize" title="Categorize" data-route="categorize"><i>2</i><span>Categorize</span><b id="nb-categorize"></b></a>
+        <a href="#processing" title="Processing" data-route="batches"><i>3</i><span>Processing</span><b id="nb-batches"></b></a>
         <span class="soon"><i>4</i><span>Publish</span><b>M4</b></span>
       </nav>
       <p class="side-foot">Local only · never deployed</p>
@@ -76,39 +76,49 @@
     </main>
 
     <main id="view-batches" hidden>
-      <header class="top tight">
-        <div>
+      <header class="proc-head">
+        <div class="proc-title">
           <h1>Processing</h1>
-          <p class="muted small">Stills become draft presets, up to 10 at a time. Nothing runs until you press Run.</p>
+          <ol class="stages" id="stages" aria-label="Where this batch is"></ol>
         </div>
-        <button class="tp-chip" type="button" data-act="toggle-tp" id="tp-chip" hidden></button>
+        <div class="proc-tools">
+          <button class="chip-btn" type="button" data-act="toggle-tp" id="tp-chip" aria-expanded="false" aria-controls="tp-sec" hidden></button>
+          <button class="chip-btn" type="button" data-act="toggle-history" id="hist-chip" aria-expanded="false" aria-controls="history-sec" hidden></button>
+        </div>
       </header>
 
       <div class="setup" id="tp-setup" hidden></div>
 
-      <div id="proc-tabs" aria-label="Processing steps"></div>
+      <section class="card-sec drawer" id="tp-sec" hidden>
+        <div class="sec-head"><h2>Test photos</h2><span class="muted small" id="tp-note"></span><span class="grow"></span><div id="tp-update"></div></div>
+        <p class="muted small">Every draft is previewed on these photos, and they become the public before/after images. Folder: <span class="folder-path" id="tp-folder"></span></p>
+        <div class="tp-row" id="tp-row"></div>
+      </section>
+
+      <section class="card-sec drawer" id="history-sec" hidden>
+        <div class="sec-head"><h2>History</h2></div>
+        <div id="closed"></div>
+      </section>
+
       <p class="job" id="batch-job" hidden></p>
 
-      <section class="tab-panel" id="panel-choose">
-        <div class="sec-head toolbar"><h2 id="queue-title">Next batch</h2><span class="muted small" id="queue-note"></span><span class="grow"></span><div class="sec-actions" id="queue-actions"></div></div>
+      <section class="stage-card" id="stage-build">
+        <div class="stage-head">
+          <div><h2 id="build-title">Next batch</h2><p class="muted small" id="build-note"></p></div>
+          <div class="sec-actions" id="build-tools"></div>
+        </div>
+        <div class="meter" aria-hidden="true"><span id="build-meter"></span></div>
         <div id="queue"></div>
+        <div class="action-bar" id="build-bar"></div>
       </section>
 
-      <section class="tab-panel" id="panel-run" hidden>
-        <div id="run-box"></div>
-        <div id="closed-sec" hidden><h3 class="small">History</h3><div id="closed"></div></div>
-      </section>
-
-      <section class="tab-panel rv-sec" id="panel-review" hidden>
+      <section class="stage-card rv-sec" id="stage-review" hidden>
+        <div class="stage-head">
+          <div><h2 id="rv-title"></h2><p class="muted small" id="rv-note"></p></div>
+        </div>
+        <div class="meter" aria-hidden="true"><span id="rv-meter"></span></div>
         <div class="review" id="review"></div>
       </section>
-
-      <details class="card-sec tp-details" id="tp-sec" hidden>
-        <summary><span class="sec-title">Test photos</span><span class="muted small" id="tp-note"></span></summary>
-        <p class="muted small">Every draft is previewed on these photos, and they become the public before/after images. Folder: <span class="folder-path" id="tp-folder"></span></p>
-        <div id="tp-update"></div>
-        <div class="tp-row" id="tp-row"></div>
-      </details>
     </main>
 
     <div class="lightbox" id="lightbox" hidden>

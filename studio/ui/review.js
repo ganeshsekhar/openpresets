@@ -3,6 +3,7 @@
 // when you switch drafts; slider moves update canvases and labels in place.
 import { applySettings, SLIDERS } from "/ui/renderer-core.js";
 
+const KEY_N = 8; // first photos of the default set: portrait, lifestyle, café, food, travel, city, golden hour, street
 const SLIDER = Object.fromEntries(SLIDERS.map((s) => [s.key, s]));
 const COLORS = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 const SWATCH = { Red: "#e5484d", Orange: "#f2994a", Yellow: "#f2c94c", Green: "#46a758", Aqua: "#2bb5c2", Blue: "#3e7bfa", Purple: "#8e4ec6", Magenta: "#d6409f" };
@@ -13,8 +14,6 @@ const SECTIONS = [
   { id: "mixer", title: "Colour mixer", open: false, mixer: true },
   { id: "effects", title: "Effects", open: false, keys: ["GrainAmount", "PostCropVignetteAmount"] },
 ];
-const MAIN_W = 960;
-const THUMB_W = 240;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const $ = (s, root = document) => root.querySelector(s);
@@ -61,33 +60,71 @@ function loadImageData(url, width) {
 
 function paint(canvas, base, settings, before) {
   if (!canvas || !base) return;
-  if (canvas.width !== base.width) { canvas.width = base.width; canvas.height = base.height; }
+  if (canvas.width !== base.width || canvas.height !== base.height) { canvas.width = base.width; canvas.height = base.height; }
   const out = new ImageData(new Uint8ClampedArray(base.data), base.width, base.height);
   if (!before) applySettings(out.data, base.width, base.height, 4, settings);
   canvas.getContext("2d").putImageData(out, 0, 0);
 }
 
-async function drawMain() {
-  const p = R.photos[R.selected];
-  if (!p) return;
-  const base = await loadImageData(`/testphoto/${encodeURIComponent(p.file)}?w=${MAIN_W}`, MAIN_W);
-  paint($("#rv-canvas"), base, R.settings, R.before);
-}
-function scheduleMain() {
-  cancelAnimationFrame(R.frame);
-  R.frame = requestAnimationFrame(drawMain);
-}
-async function drawThumbs() {
-  const canvases = document.querySelectorAll("[data-thumb]");
-  for (const c of canvases) {
-    const p = R.photos[Number(c.dataset.thumb)];
-    const base = await loadImageData(`/testphoto/${encodeURIComponent(p.file)}?w=${THUMB_W}`, THUMB_W);
-    paint(c, base, R.settings, false);
+// Pixel width to render a tile at: its on-screen size (retina-aware), in
+// steps so the decoded photos can be cached and reused.
+const renderWidth = (canvas) => {
+  const css = canvas.getBoundingClientRect().width || 240;
+  const zoomed = canvas.closest("#rv-zoom");
+  const px = css * Math.min(zoomed ? 2 : 1.5, window.devicePixelRatio || 1);
+  const steps = zoomed ? [480, 720, 960, 1280] : [240, 360, 480];
+  return steps.find((w) => w >= px) ?? steps[steps.length - 1];
+};
+const photoUrl = (p, w) => `/testphoto/${encodeURIComponent(p.file)}?w=${w}`;
+
+// Progressive repaint: newest settings win, tiles are painted within a small
+// per-frame time budget so dragging a slider stays smooth.
+let paintRun = 0;
+async function drawAll() {
+  const run = ++paintRun;
+  const zoom = $("#rv-zoom");
+  const jobs = zoom && !zoom.hidden
+    ? [{ canvas: $("#rv-zoom canvas"), i: R.zoomed }]
+    : [...document.querySelectorAll("[data-tile] canvas")].map((canvas) => ({ canvas, i: Number(canvas.parentElement.dataset.tile) }));
+  let t0 = performance.now();
+  for (const j of jobs) {
+    if (run !== paintRun) return;
+    const p = R.photos[j.i];
+    if (!p) continue;
+    const w = renderWidth(j.canvas);
+    const base = await loadImageData(photoUrl(p, w), w);
+    if (run !== paintRun) return;
+    paint(j.canvas, base, R.settings, R.before || R.holdTile === j.i);
+    if (performance.now() - t0 > 14) {
+      await new Promise((r) => setTimeout(r, 0));
+      t0 = performance.now();
+    }
   }
 }
-function scheduleThumbs() {
-  clearTimeout(R.thumbTimer);
-  R.thumbTimer = setTimeout(drawThumbs, 180);
+function scheduleAll() {
+  clearTimeout(R.frame);
+  R.frame = setTimeout(drawAll, 0);
+}
+
+// Fit every tile (references + test photos) inside the visible area: pick
+// the column count that gives the biggest 3:2 tiles without scrolling.
+function fitGrid() {
+  const grid = $("#rv-grid");
+  if (!grid) return;
+  const n = grid.children.length;
+  const gap = 8, cap = 20;
+  const W = grid.clientWidth;
+  const H = Math.max(320, window.innerHeight - grid.getBoundingClientRect().top - 16);
+  let best = { cols: 1, w: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const byW = (W - gap * (cols - 1)) / cols;
+    const byH = ((H - gap * (rows - 1)) / rows - cap) * 1.5;
+    const w = Math.min(byW, byH);
+    if (w > best.w) best = { cols, w };
+  }
+  grid.style.setProperty("--cols", best.cols);
+  grid.style.setProperty("--tile", `${Math.floor(best.w)}px`);
 }
 
 // ---------- saving ----------
@@ -205,8 +242,7 @@ function setValue(key, raw) {
     const sat = document.querySelector(`[data-key="ColorGrade${zone}Sat"]`);
     if (sat) sat.style.setProperty("--track", trackStyle(`ColorGrade${zone}Sat`));
   }
-  scheduleMain();
-  scheduleThumbs();
+  scheduleAll();
   scheduleSave();
 }
 
@@ -214,6 +250,17 @@ function setValue(key, raw) {
 function versionsHTML(d) {
   return (d.versions ?? []).map((v) => `<button type="button" data-restore="${v.version}" ${v.version === d.version ? "disabled" : ""}>
     v${v.version} · ${esc(v.source === "fit" ? "first draft" : v.source)}${v.note ? ` · ${esc(v.note)}` : ""}${v.version === d.version ? " · current" : ""}</button>`).join("");
+}
+
+function gridTilesHTML() {
+  const draft = R.draft, photos = R.photos;
+  return `
+        <figure class="tile ref" ${draft.refs.length > 1 ? 'data-ref-cycle title="Click for the next reference still"' : ""}><div class="ref-matte">
+            <span class="ref-label">Reference look${draft.refs.length > 1 ? ` · <span id="ref-i">1</span>/${draft.refs.length}` : ""}</span>
+            ${draft.refs.map((r, i) => `<img src="/thumb/${r.sha256}.webp" alt="Reference still" ${i ? "hidden" : ""} />`).join("")}</div>
+          <figcaption title="${esc(draft.refs.map((r) => `${r.title}${r.stillNo != null ? ` #${r.stillNo}` : ""}`).join(" · "))}">${draft.refs.length > 1 ? `${draft.refs.length} stills · ` : ""}${esc(draft.refs.map((r) => r.title).filter((v, i, a) => a.indexOf(v) === i).join(", "))}</figcaption></figure>
+        ${photos.slice(0, R.showAll ? photos.length : KEY_N).map((p, i) => `<figure class="tile" data-tile="${i}"><canvas aria-label="${esc(p.subject)} with this preset"></canvas><figcaption>${esc(p.subject)}</figcaption></figure>`).join("")}
+`;
 }
 
 function render(root, args) {
@@ -235,31 +282,23 @@ function render(root, args) {
 
     <section class="rv2-main">
       <header class="rv2-head">
-        <div><h1>${esc(draft.name)}</h1><p class="muted small">${esc(draft.description)}</p></div>
+        <div class="rv2-title"><h1>${esc(draft.name)}</h1><p class="muted small" title="${esc(draft.description)}">${esc(draft.description)}</p></div>
+        <div class="seg small-seg" role="group" aria-label="How many test photos">
+          <button type="button" data-set="key" aria-pressed="${!R.showAll}">${Math.min(KEY_N, photos.length)} key</button>
+          <button type="button" data-set="all" aria-pressed="${R.showAll}">All ${photos.length}</button>
+        </div>
+        <div class="seg small-seg" role="group" aria-label="Before or after" title="Click a photo to enlarge, hold it for the original, \\ toggles before/after">
+          <button type="button" data-ba="after" aria-pressed="${!R.before}">After</button>
+          <button type="button" data-ba="before" aria-pressed="${R.before}">Before</button>
+        </div>
         <span class="pill ${status}">${status === "draft" ? "To review" : status === "approved" ? "Approved" : "Rejected"}</span>
       </header>
-
-      <div class="rv2-compare">
-        <figure class="rv2-ref">
-          <figcaption>Reference</figcaption>
-          ${draft.refs.map((r) => `<img src="/thumb/${r.sha256}.webp" alt="Reference still" />`).join("")}
-          <span class="muted small">${esc(draft.refs.map((r) => `${r.title}${r.stillNo != null ? ` #${r.stillNo}` : ""}`).join(" · "))}</span>
-        </figure>
-        <figure class="rv2-preview">
-          <div class="rv2-toolbar">
-            <span class="muted small">${esc(photos[R.selected]?.subject ?? "")} · live preview</span>
-            <div class="seg small-seg" role="group" aria-label="Before or after">
-              <button type="button" data-ba="after" aria-pressed="${!R.before}">After</button>
-              <button type="button" data-ba="before" aria-pressed="${R.before}">Before</button>
-            </div>
-          </div>
-          <canvas id="rv-canvas" aria-label="Preview of the preset on a test photo"></canvas>
-          <p class="muted small">Hold the photo or press <kbd>\\</kbd> to compare. Approximation of Lightroom.</p>
-        </figure>
+      <div class="rv-grid" id="rv-grid">${gridTilesHTML()}
       </div>
-
-      <div class="filmstrip" role="listbox" aria-label="Test photos">${photos.map((p, i) => `<button type="button" role="option" aria-selected="${i === R.selected}" data-pick="${i}" title="${esc(p.subject)}">
-          <canvas data-thumb="${i}"></canvas><span>${esc(p.subject)}</span></button>`).join("")}</div>
+      <figure class="rv-zoom" id="rv-zoom" hidden>
+        <canvas></canvas>
+        <figcaption><span id="rv-zoom-label"></span><span class="muted small">Click or press Esc to go back · ← → for next photo</span></figcaption>
+      </figure>
     </section>
 
     <aside class="rv2-side">
@@ -292,8 +331,8 @@ function render(root, args) {
         <div class="more-block"><b class="small">Versions</b><div class="versions" id="rv-versions">${versionsHTML(draft)}</div></div>
       </details>
     </aside>`;
-  drawMain();
-  drawThumbs();
+  R.zoomed = null;
+  setTimeout(() => { fitGrid(); drawAll(); }, 0);
 }
 
 // ---------- events (bound once) ----------
@@ -318,7 +357,7 @@ function bind() {
     }
   });
   document.addEventListener("keydown", (e) => {
-    if (!document.querySelector("#rv-canvas")) return;
+    if (!document.querySelector("#rv-grid")) return;
     const n = e.target.closest?.("[data-num]");
     if (n && e.key === "Enter") { n.blur(); return; }
     if (n && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -330,7 +369,11 @@ function bind() {
     if (e.key === "\\" && !["INPUT", "TEXTAREA"].includes(e.target.tagName)) {
       R.before = !R.before;
       document.querySelectorAll("[data-ba]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.ba === "before") === R.before)));
-      drawMain();
+      drawAll();
+    }
+    if (R.zoomed != null && !["INPUT", "TEXTAREA"].includes(e.target.tagName)) {
+      if (e.key === "Escape") zoomTo(null);
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const n = R.showAll ? R.photos.length : Math.min(KEY_N, R.photos.length); zoomTo((R.zoomed + (e.key === "ArrowRight" ? 1 : -1) + n) % n); }
     }
   });
   document.addEventListener("dblclick", (e) => {
@@ -341,19 +384,30 @@ function bind() {
   document.addEventListener("click", async (e) => {
     if (!inReview(e)) return;
     const t = e.target;
-    const pick = t.closest("[data-pick]");
-    if (pick) {
-      R.selected = Number(pick.dataset.pick);
-      document.querySelectorAll("[data-pick]").forEach((b) => b.setAttribute("aria-selected", String(b === pick)));
-      const label = document.querySelector(".rv2-toolbar .muted");
-      if (label) label.textContent = `${R.photos[R.selected].subject} · live preview`;
-      return drawMain();
+    const cyc = t.closest("[data-ref-cycle]");
+    if (cyc) {
+      const imgs = [...cyc.querySelectorAll("img")];
+      const i = (imgs.findIndex((im) => !im.hidden) + 1) % imgs.length;
+      imgs.forEach((im, k) => (im.hidden = k !== i));
+      $("#ref-i").textContent = String(i + 1);
+      return;
     }
+    const set = t.closest("[data-set]");
+    if (set) {
+      R.showAll = set.dataset.set === "all";
+      document.querySelectorAll("[data-set]").forEach((b) => b.setAttribute("aria-pressed", String(b === set)));
+      $("#rv-grid").innerHTML = gridTilesHTML();
+      fitGrid();
+      return drawAll();
+    }
+    const tile = t.closest("[data-tile]");
+    if (tile) return zoomTo(Number(tile.dataset.tile));
+    if (t.closest("#rv-zoom")) return zoomTo(null);
     const ba = t.closest("[data-ba]");
     if (ba) {
       R.before = ba.dataset.ba === "before";
       document.querySelectorAll("[data-ba]").forEach((b) => b.setAttribute("aria-pressed", String(b === ba)));
-      return drawMain();
+      return drawAll();
     }
     const mx = t.closest("[data-mixer]");
     if (mx) {
@@ -410,23 +464,38 @@ function bind() {
       R.ctx.toast(err.message);
     }
   });
-  // Press and hold the preview to see the original.
+  // Press and hold a photo to see the original; a quick click enlarges it.
   document.addEventListener("pointerdown", (e) => {
-    if (e.target.id === "rv-canvas") { R.holding = true; paintHold(true); }
+    const tile = e.target.closest?.("[data-tile], #rv-zoom");
+    if (!tile) return;
+    const i = tile.id === "rv-zoom" ? R.zoomed : Number(tile.dataset.tile);
+    clearTimeout(R.holdTimer);
+    R.holdTimer = setTimeout(() => { R.holdTile = i; R.suppressClick = true; drawAll(); }, 180);
   });
   for (const ev of ["pointerup", "pointercancel"]) {
-    document.addEventListener(ev, () => { if (R.holding) { R.holding = false; paintHold(false); } });
+    document.addEventListener(ev, () => {
+      clearTimeout(R.holdTimer);
+      if (R.holdTile != null) { R.holdTile = null; drawAll(); }
+    });
   }
+  document.addEventListener("click", (e) => {
+    if (R.suppressClick) { R.suppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+  window.addEventListener("resize", () => { clearTimeout(R.fitTimer); R.fitTimer = setTimeout(() => { fitGrid(); drawAll(); }, 150); });
   document.addEventListener("toggle", (e) => {
     const sec = e.target.closest?.("[data-sec]");
     if (sec) sec.open ? R.openSecs.add(sec.dataset.sec) : R.openSecs.delete(sec.dataset.sec);
   }, true);
 }
-async function paintHold(on) {
-  const prev = R.before;
-  R.before = on || prev;
-  await drawMain();
-  if (!on) { R.before = document.querySelector('[data-ba="before"]')?.getAttribute("aria-pressed") === "true"; await drawMain(); }
+function zoomTo(i) {
+  const grid = $("#rv-grid"), zoom = $("#rv-zoom");
+  if (!grid || !zoom) return;
+  R.zoomed = i;
+  grid.hidden = i != null;
+  zoom.hidden = i == null;
+  if (i != null) $("#rv-zoom-label").textContent = `${R.photos[i].subject} · ${i + 1} of ${R.showAll ? R.photos.length : Math.min(KEY_N, R.photos.length)}`;
+  else fitGrid();
+  drawAll();
 }
 
 export function renderReview(root, args) {

@@ -1,5 +1,4 @@
 import { renderReview, flushReview } from "/ui/review.js";
-import { tabs } from "/ui/tabs.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -330,6 +329,7 @@ function route() {
   if (h.startsWith("batches") || h.startsWith("review")) return location.replace(`#processing${h.includes("/") ? h.slice(h.indexOf("/")) : ""}`);
   state.route = h === "categorize" ? "categorize" : h.startsWith("processing") ? "batches" : "refs";
   state.reviewId = Number(h.split("/")[1]) || null;
+  document.body.classList.remove("rail");
   for (const v of ["refs", "categorize", "batches"]) $(`#view-${v}`).hidden = state.route !== v;
   document.querySelectorAll("[data-route]").forEach((a) =>
     a.dataset.route === state.route ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
@@ -515,83 +515,99 @@ async function loadBatches() {
   if (b.job) pollBatchJob();
 }
 
-let procTabs = null;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+function stagesHTML(current, labels) {
+  return labels.map((l, i) => {
+    const n = i + 1;
+    const st = n < current ? "done" : n === current ? "current" : "later";
+    return `<li class="${st}" ${st === "current" ? 'aria-current="step"' : ""}><span class="st-dot">${st === "done" ? "✓" : n}</span><span>${l}</span></li>`;
+  }).join("");
+}
+
 function renderBatches() {
   const b = state.batch, tp = state.tp;
   const photosReady = tp.photos.length >= 3;
   const updateAvailable = !!(tp.missingDefaults || tp.retired.length) && tp.photos.length > 0;
-  const hasQueue = b.queue.length > 0;
-  const open = b.open;
-  const toReview = open ? open.drafts.filter((d) => d.status === "draft").length : 0;
+  const queued = b.queue.length;
+  const left = b.size - queued;
   const busy = !!b.job;
+  const running = (busy && /batch/i.test(b.job.label)) || b.open?.status === "running";
+  // A batch being drafted is not ready for review yet: keep the build card.
+  const open = running ? null : b.open;
+  const decided = open ? open.drafts.filter((d) => d.status !== "draft").length : 0;
 
-  // Test photos: one-time setup, so a banner when missing and a small chip after.
+  // Two stages: build the batch (choose stills, then draft them) → review it.
+  $("#stages").innerHTML = stagesHTML(open ? 2 : 1, [
+    running ? "Build batch · drafting…" : queued && !open ? `Build batch · ${queued}/${b.size}` : "Build batch",
+    open ? `Review · ${decided}/${open.drafts.length}` : "Review",
+  ]);
+
+  // Header tools: test photos (one-time setup) and history live in drawers.
   const setup = $("#tp-setup");
   setup.hidden = photosReady;
   if (!photosReady) setup.innerHTML = `<div><b>One-time setup: test photos</b>
-      <span class="muted small">Every draft is previewed on ${tp.defaults} curated photos (portrait, café, food, travel, city…), which also become the public before/after images.</span></div>
+      <span class="muted small">Drafts are previewed on ${tp.defaults} curated photos (portrait, café, food, travel, city…), which also become the public before/after images.</span></div>
       <button class="btn primary" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>${tp.photos.length ? "Finish setup" : `Download ${tp.defaults} photos`}</button>`;
   const chip = $("#tp-chip");
   chip.hidden = !photosReady;
   chip.innerHTML = `Test photos · ${tp.photos.length}${updateAvailable ? ' <b class="tab-badge hot">update</b>' : ""}`;
+  const hist = $("#hist-chip");
+  hist.hidden = !b.closed.length;
+  hist.textContent = `History · ${b.closed.length}`;
   $("#tp-update").innerHTML = updateAvailable
-    ? `<p class="small">${tp.missingDefaults} new photo${tp.missingDefaults === 1 ? "" : "s"} available${tp.retired.length ? `, ${tp.retired.length} to retire` : ""}. <button class="btn" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>Update set</button></p>`
+    ? `<button class="btn sm" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>Get ${plural(tp.missingDefaults, "new photo")}${tp.retired.length ? `, retire ${tp.retired.length}` : ""}</button>`
     : "";
-
-  // Tabs: Choose → Run → Review. Follow the workflow when the stage changes,
-  // otherwise keep whichever tab the owner picked.
-  const stage = open ? "review" : busy || hasQueue ? "run" : "choose";
-  if (state.reviewId && open) state.procTab = "review";
-  else if (state.procStage !== stage) state.procTab = stage;
-  state.procStage = stage;
-  const items = [
-    { id: "choose", label: "1 · Choose stills", panel: "panel-choose", badge: open ? "locked" : hasQueue ? `${b.queue.length}/${b.size}` : "", tone: "" },
-    { id: "run", label: "2 · Run batch", panel: "panel-run", badge: busy ? "running" : !open && hasQueue ? "ready" : "", tone: busy || (!open && hasQueue) ? "hot" : "" },
-    { id: "review", label: "3 · Review", panel: "panel-review", badge: open ? (toReview ? `${toReview} to review` : "done") : "", tone: toReview ? "hot" : "" },
-  ];
-  if (!procTabs) procTabs = tabs($("#proc-tabs"), { items, active: state.procTab, onChange: (id) => (state.procTab = id) });
-  else procTabs.update({ items, active: state.procTab });
+  $("#closed").innerHTML = b.closed.map((c) => `<div class="hist-row"><b>Batch #${c.id}</b><span>${c.approved} approved · ${c.rejected} rejected</span><span class="muted">${new Date(c.closedAt + "Z").toLocaleDateString()}</span></div>`).join("");
 
   const job = $("#batch-job");
   if (!busy && b.lastBatch?.errors.length) { job.hidden = false; job.textContent = `Last run: ${b.lastBatch.drafts} drafts, ${b.lastBatch.errors.length} failed (${b.lastBatch.errors[0]}).`; }
   else job.hidden = true;
 
-  // 1 · Choose: actions in the header row, slots always visible so capacity is obvious.
-  const left = b.size - b.queue.length;
-  $("#queue-title").textContent = open ? "Next batch is locked" : "Next batch";
-  $("#queue-note").textContent = open ? "" : `${b.queue.length} of ${b.size} chosen`;
-  $("#queue-actions").innerHTML = open ? "" : `
-    <a class="btn sm" href="#categorize">Pick in Categorize</a>
-    <button class="btn sm ${hasQueue ? "" : "primary"}" type="button" data-act="suggest" ${!photosReady || busy || !left ? "disabled" : ""}
-      title="${!photosReady ? "Set up test photos first" : !left ? "Batch is full" : "Picks varied stills and look groups you haven't used yet, clearest first"}">${hasQueue ? `Fill ${left} with suggestions` : `Suggest ${b.size}`}</button>
-    ${hasQueue ? `<button class="btn sm primary" type="button" data-act="goto-run">Next: run →</button>` : ""}`;
-  $("#queue").innerHTML = open
-    ? `<p class="muted">Batch #${open.id} is still in review. Approve or reject every draft, then choose the next ${b.size}.</p>`
-    : `<div class="queue-grid">${b.queue.map((q, i) => `<div class="q-card">
+  // ---- Stage 1 + 2: build the batch. Selection and Run share one card, so
+  // what you picked stays in view while you run it.
+  // Reviewing needs room: the app sidebar folds to a slim rail.
+  document.body.classList.toggle("rail", !!open && state.route === "batches");
+  $("#stage-build").hidden = !!open;
+  $("#stage-review").hidden = !open;
+  if (!open) {
+    const m = running ? /(\d+) of (\d+)/.exec(b.job.progress || "") : null;
+    const doneN = m ? Number(m[1]) - 1 : 0;
+    $("#build-title").textContent = running ? "Drafting presets" : "Next batch";
+    $("#build-note").textContent = running ? `${b.job.progress || "Starting…"}`
+      : queued ? `${queued} of ${b.size} chosen · ${plural(left, "slot")} left`
+      : `Choose up to ${b.size} stills or look groups. Each becomes one draft preset.`;
+    $("#build-meter").style.width = `${running && m ? (doneN / Number(m[2])) * 100 : (queued / b.size) * 100}%`;
+    $("#build-tools").innerHTML = running ? "" : `
+      <a class="btn sm" href="#categorize">Pick in Categorize</a>
+      <button class="btn sm" type="button" data-act="suggest" ${!photosReady || busy || !left ? "disabled" : ""}
+        title="${!photosReady ? "Set up test photos first" : !left ? "Batch is full" : "Picks varied stills and look groups you haven't used yet, clearest first"}">${queued ? `Suggest ${left} more` : `Suggest ${b.size}`}</button>`;
+    $("#queue").innerHTML = `<div class="queue-grid">${b.queue.map((q, i) => {
+        const st = running ? (i < doneN ? "done" : i === doneN ? "working" : "waiting") : "";
+        return `<div class="q-card ${st}">
           <div class="q-img" style="--n:${Math.min(3, q.refs.length)}">${q.refs.slice(0, 3).map((r) => `<img src="/thumb/${r.sha256}.webp" alt="" loading="lazy" />`).join("")}</div>
           <span class="q-kind">${q.kind === "look" ? `Look · ${q.refs.length}` : "Still"}</span>
-          <button class="q-x" type="button" data-unqueue="${q.id}" aria-label="Remove from batch">×</button>
+          ${running ? `<span class="q-state">${st === "done" ? "✓" : st === "working" ? "" : ""}</span>` : `<button class="q-x" type="button" data-unqueue="${q.id}" aria-label="Remove from batch">×</button>`}
           <div class="q-meta"><b>${esc(q.refs[0]?.title ?? "")}${q.refs[0]?.stillNo != null ? ` #${q.refs[0].stillNo}` : ""}</b>
-            <span class="muted">${q.kind === "look" ? `${q.refs.length} similar stills → 1 preset` : `Preset ${i + 1}`}</span></div>
-        </div>`).join("")}${Array.from({ length: left }, (_, i) => `<div class="q-slot"><span>${b.queue.length + i + 1}</span></div>`).join("")}</div>
-      ${hasQueue ? "" : `<p class="muted small hint">Suggest fills all ${b.size} slots with varied stills you haven't used. To choose yourself, hover a still in Categorize and click “+ Batch”.</p>`}`;
+            <span class="muted">${q.kind === "look" ? `${q.refs.length} similar → 1 preset` : "1 preset"}</span></div>
+        </div>`;
+      }).join("")}${running ? "" : Array.from({ length: left }, (_, i) => `<div class="q-slot"><span>${queued + i + 1}</span></div>`).join("")}</div>`;
+    const blocker = b.blockers[0];
+    $("#build-bar").innerHTML = running
+      ? `<span class="muted small">Runs locally, free. You can leave this page; it stops for your review when done.</span><span class="grow"></span><button class="btn primary" type="button" disabled>Drafting…</button>`
+      : `<span class="small ${queued ? "" : "muted"}">${queued ? `Drafts ${plural(queued, "preset")} (about ${Math.max(1, Math.round(queued * 2))} s), then stops for your review.` : blocker ? esc(blocker) : "Choose stills to start."}</span>
+         <span class="grow"></span>
+         <button class="btn primary" type="button" data-act="run" ${b.blockers.length || busy ? "disabled" : ""} title="${esc(blocker ?? "")}">Run batch${queued ? ` (${queued})` : ""}</button>`;
+  } else {
+    // ---- Stage 3: review (workspace rendered by renderOpenReview)
+    const left2 = open.drafts.length - decided;
+    $("#stage-review .stage-head").hidden = true; // the header stepper already says "Review · x/y"
+    $("#rv-title").textContent = `Review batch #${open.id}`;
+    $("#rv-note").textContent = left2 ? `${decided} of ${open.drafts.length} decided · approve, tweak or reject each draft. The next batch unlocks when all are decided.` : "All decided.";
+    $("#rv-meter").style.width = `${(decided / open.drafts.length) * 100}%`;
+  }
 
-  // 2 · Run
-  const runText = busy ? `${esc(b.job.label)}… ${esc(b.job.progress || "")}`
-    : open ? `Batch #${open.id} is drafted. Review it before running the next one.`
-    : hasQueue ? `Drafts ${b.queue.length} preset${b.queue.length === 1 ? "" : "s"} from your chosen stills (free, about 2 s each), then stops for review.`
-    : "Choose stills first.";
-  $("#run-box").innerHTML = `<div class="run-row"><p>${runText}</p>
-    ${open ? `<button class="btn primary" type="button" data-act="goto-review">Go to review</button>`
-      : `<button class="btn primary" type="button" data-act="run" ${b.blockers.length || busy ? "disabled" : ""} title="${esc(b.blockers[0] ?? "")}">${busy ? "Running…" : `Run batch${hasQueue ? ` (${b.queue.length})` : ""}`}</button>`}</div>
-    ${!open && !busy && b.blockers.length ? `<p class="muted small">${esc(b.blockers[0])}</p>` : ""}`;
-  $("#closed-sec").hidden = !b.closed.length;
-  $("#closed").innerHTML = b.closed.map((c) => `<div class="muted small">Batch #${c.id} · ${c.approved} approved · ${c.rejected} rejected · closed ${new Date(c.closedAt + "Z").toLocaleString()}</div>`).join("");
-
-  // 3 · Review (workspace rendered by renderOpenReview)
-  if (!open) $("#review").innerHTML = `<div class="empty" style="grid-column:1/-1"><h2>Nothing to review</h2><p class="muted">Run a batch and its drafts appear here.</p></div>`;
-
-  // Test photos detail
+  // Test photos drawer
   $("#tp-note").textContent = `${tp.photos.length} photos${tp.photos.filter((p) => !p.credit).length ? ` · ${tp.photos.filter((p) => !p.credit).length} missing a credit` : ""}`;
   $("#tp-folder").textContent = tp.folder;
   $("#tp-folder").dataset.copy = tp.folder;
@@ -626,7 +642,7 @@ async function pollBatchJob() {
 // =====================================================================
 async function renderOpenReview(fresh = false) {
   const open = state.batch.open;
-  if (!open) return;
+  if (!open || open.status === "running") return;
   const drafts = open.drafts;
   const id = drafts.some((d) => d.id === state.reviewId) ? state.reviewId : drafts.find((d) => d.status === "draft")?.id ?? drafts[0]?.id;
   if (!id) return;
@@ -715,8 +731,12 @@ document.addEventListener("click", async (e) => {
   const act = e.target.closest?.("[data-act]");
   if (!act || act.disabled) return;
   const a = act.dataset.act;
-  if (a === "goto-review" || a === "goto-run") { procTabs?.select(a === "goto-review" ? "review" : "run"); return; }
-  if (a === "toggle-tp") { const d = $("#tp-sec"); d.hidden = !d.hidden; d.open = true; if (!d.hidden) d.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (a === "toggle-tp" || a === "toggle-history") {
+    const d = $(a === "toggle-tp" ? "#tp-sec" : "#history-sec");
+    d.hidden = !d.hidden;
+    act.setAttribute("aria-expanded", String(!d.hidden));
+    return;
+  }
   try {
     if (a === "suggest") {
       const r = await api("/api/queue/suggest", { method: "POST" });
