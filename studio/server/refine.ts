@@ -10,7 +10,7 @@ import { type DB, logEvent } from "./db.ts";
 import { blockedTerms, lintName } from "./names.ts";
 import { renderFile, SLIDER, SLIDERS, type Settings } from "./renderer.ts";
 import { TAXONOMY } from "./rules.ts";
-import { listTestPhotos, testDir } from "./testphotos.ts";
+import { listTestPhotos, photoBase } from "./testphotos.ts";
 
 const W = 520, H = 347;
 
@@ -28,7 +28,7 @@ async function buildSheet(db: DB, refsDir: string, dataDir: string, refIds: numb
   const pick = ["Portrait", "Café", "Travel", "Food", "City"].map((s) => photos.find((p) => p.subject === s)).filter(Boolean).slice(0, 3) as typeof photos;
   const use = pick.length >= 2 ? pick : photos.slice(0, 3);
   const left = await Promise.all(refs.map(async (p, i) => label(await sharp(join(refsDir, p)).toBuffer(), `REFERENCE ${i + 1}`)));
-  const right = await Promise.all(use.map(async (p) => label(await renderFile(join(testDir(dataDir), p.file), settings, W), `PRESET ON ${p.subject.toUpperCase()}`)));
+  const right = await Promise.all(use.map(async (p) => label(await renderFile(await photoBase(dataDir, p), settings, W), `PRESET ON ${p.subject.toUpperCase()}`)));
   const rows = Math.max(left.length, right.length);
   await sharp({ create: { width: W * 2 + 12, height: rows * (H + 8) - 8, channels: 3, background: "#ffffff" } })
     .composite([

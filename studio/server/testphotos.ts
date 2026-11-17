@@ -3,10 +3,43 @@
 // (docs/legal-protocol.md, Phase 4). Files live in <data>/test-photos/.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import sharp from "sharp";
 import { IMAGE_EXT } from "./config.ts";
+import { basePath } from "./neutralize.ts";
 
-export interface Credit { author: string; url: string; license: string; subject?: string }
-export interface TestPhoto { file: string; subject: string; credit: Credit | null }
+/** The image a test photo is rendered from: neutral base for stock, original for own photos. */
+export const photoBase = (dataDir: string, p: { file: string; original: boolean }) => basePath(testDir(dataDir), p.file, p.original);
+
+export const OWN_CONSENT = "I took this photo myself, it is unedited, and anyone recognizable in it agreed to appear on openpresets.com. I release it under CC0.";
+
+/**
+ * Add one of the owner's own photos. Re-encoded so camera metadata (GPS
+ * location, device, date) is dropped; the consent is stored with the credit.
+ */
+export async function importOwnPhoto(dataDir: string, name: string, bytes: Buffer, subject: string): Promise<string> {
+  const dir = testDir(dataDir);
+  mkdirSync(dir, { recursive: true });
+  const base = `own-${(subject || name.replace(/\.[^.]+$/, "")).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "photo"}`;
+  let file = `${base}.jpg`;
+  for (let i = 2; existsSync(join(dir, file)); i++) file = `${base}-${i}.jpg`;
+  await sharp(bytes).rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 92 }).toFile(join(dir, file));
+  const credits = readCredits(dataDir);
+  credits[file] = {
+    author: "OpenPresets (own photo)", url: "", license: "CC0 1.0 (own photo)", subject: subject || "Own photo",
+    original: true, consent: { at: new Date().toISOString(), statement: OWN_CONSENT },
+  };
+  writeFileSync(creditsPath(dataDir), JSON.stringify(credits, null, 2));
+  return file;
+}
+
+export interface Credit {
+  author: string; url: string; license: string; subject?: string;
+  /** Owner's own unedited photo: used as-is (no neutralizing). */
+  original?: boolean;
+  /** Owner's confirmation at import (own photo; people in it agreed to appear). */
+  consent?: { at: string; statement: string };
+}
+export interface TestPhoto { file: string; subject: string; credit: Credit | null; original: boolean }
 
 /**
  * Default set (20), chosen to cover the audience: people and skin, cafés and
@@ -65,6 +98,7 @@ export function listTestPhotos(dataDir: string): TestPhoto[] {
       file,
       subject: credits[file]?.subject ?? file.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "),
       credit: credits[file] ?? null,
+      original: !!credits[file]?.original,
     }));
 }
 

@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import sharp from "sharp";
 import { logEvent, type DB } from "./db.ts";
 import { applySettings, toLightroom, type Settings } from "./renderer.ts";
-import { DEFAULT_SET, listTestPhotos, testDir, type TestPhoto } from "./testphotos.ts";
+import { DEFAULT_SET, listTestPhotos, photoBase, type TestPhoto } from "./testphotos.ts";
 
 const run = promisify(execFile);
 
@@ -168,7 +168,7 @@ export async function stage(db: DB, dataDir: string, repoRoot: string, onProgres
     rmSync(join(prev, d.preset_id!), { recursive: true, force: true }); // drop photos no longer in the gallery
     mkdirSync(join(prev, d.preset_id!), { recursive: true });
     for (const file of gallery) {
-      const src = join(testDir(dataDir), file);
+      const src = await photoBase(dataDir, byFile.get(file)!);
       const b = join(repoRoot, "public", beforePath(file));
       if (!existsSync(b)) { await renderWebp(src, null, b); images++; }
       await renderWebp(src, settings, join(repoRoot, "public", afterPath(d.preset_id!, file)));

@@ -8,7 +8,7 @@ import { type DB, logEvent } from "./db.ts";
 import { fitPreset } from "./fitter.ts";
 import { blockedTerms, lintName, suggestName } from "./names.ts";
 import { loadRaw, type Settings } from "./renderer.ts";
-import { listTestPhotos, testDir } from "./testphotos.ts";
+import { listTestPhotos, photoBase } from "./testphotos.ts";
 
 export const BATCH_SIZE = 10;
 export const MIN_TEST_PHOTOS = 3;
@@ -128,7 +128,7 @@ export async function runBatch(
   const blockers = runBlockers(db, dataDir);
   if (blockers.length) throw new Error(blockers[0]);
   const queue = queueList(db);
-  const photos = listTestPhotos(dataDir).map((p) => join(testDir(dataDir), p.file));
+  const photos = await Promise.all(listTestPhotos(dataDir).map((p) => photoBase(dataDir, p)));
   const batchId = Number(db.prepare("INSERT INTO batches (status) VALUES ('running')").run().lastInsertRowid);
   const existing = new Set([
     ...siteNames(repoRoot).map((n) => n.toLowerCase()),
