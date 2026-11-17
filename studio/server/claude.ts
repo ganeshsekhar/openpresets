@@ -65,7 +65,7 @@ function parseItems(stdout: string): Item[] {
   return obj.items;
 }
 
-function runClaude(cwd: string, text: string): Promise<{ stdout: string; costUsd?: number }> {
+export function runClaude(cwd: string, text: string): Promise<{ stdout: string; costUsd?: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn("claude", ["-p", text, "--output-format", "json", "--allowedTools", "Read", "--add-dir", cwd], {
       cwd,

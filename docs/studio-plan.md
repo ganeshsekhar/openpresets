@@ -4,7 +4,7 @@ The local admin dashboard plus the agents that turn film stills into presets.
 Runs on the owner's Mac (later the Mac mini). Never deployed. Everything is
 started by a button; nothing runs on a schedule.
 
-Status: M1 (References) and M2 (Categorize) built. M3+ planned. Decisions below were made with the owner on
+Status: M1 (References), M2 (Categorize) and M3 (Batches + Review) built. M4+ planned. Decisions below were made with the owner on
 2026-11-16.
 
 ## Decisions
@@ -163,8 +163,14 @@ placeholder presets into Studio.
    with colour; adjustable), optional Claude pass on unclear stills via the
    local Claude Code CLI in contact sheets of 20, owner tag editing. Separate
    from preset creation.
-3. **M3 — Renderer + style agent + Review:** test photo set, renderer, batch
-   runner, Review screen, name linter.
+3. **M3 — Batches + Review (done):** approximate Lightroom renderer (Node,
+   no Python), 8-photo CC0/Unsplash test set downloaded on click with
+   credits, free fitter (coordinate descent matching the reference's grade on
+   the test photos; colour ~65% so lighting casts aren't copied), descriptive
+   name generator + name check (brands, film titles from folders and file
+   names, credits), queue of up to 10 stills/look groups with Suggest, Run
+   batch → drafts → stops, Review with live sliders, versions, approve/reject,
+   .xmp export, "checked in Lightroom" flag, optional Claude refine.
 4. **M4 — Publish + site update:** export, previews, credits, push; site
    facets; migrate placeholders.
 5. **M5 — Polish:** learned rules, usage display, phone-friendly review,

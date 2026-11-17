@@ -77,7 +77,11 @@ function findBars(lum: Float32Array, w: number, h: number) {
 
 export async function analyzeImage(path: string): Promise<{ metrics: Metrics; dhash: string }> {
   const { data, info } = await sharp(path).rotate().resize(SIZE, SIZE, { fit: "inside" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const w = info.width, h = info.height, ch = info.channels;
+  return { metrics: analyzeRaw(data, info.width, info.height, info.channels), dhash: await dHash(path) };
+}
+
+/** Measure raw interleaved RGB pixels (used directly on renders by the fitter). */
+export function analyzeRaw(data: Uint8Array | Buffer, w: number, h: number, ch: number): Metrics {
   const n = w * h;
   const L = new Float32Array(n), A = new Float32Array(n), Bv = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -142,7 +146,7 @@ export async function analyzeImage(path: string): Promise<{ metrics: Metrics; dh
     skin: round(skin / count, 4),
     mono: chromaP90 < 6,
   };
-  return { metrics, dhash: await dHash(path) };
+  return metrics;
 }
 
 /** 64-bit difference hash for near-duplicate detection. */

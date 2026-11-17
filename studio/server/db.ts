@@ -52,6 +52,45 @@ const MIGRATIONS = [
    ALTER TABLE refs ADD COLUMN look_group INTEGER;      -- id of the look group's first member
    ALTER TABLE refs ADD COLUMN look_locked INTEGER NOT NULL DEFAULT 0; -- owner removed it from grouping
    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+  // M3: batch queue, batches, drafts and their versions.
+  `CREATE TABLE queue (
+     id INTEGER PRIMARY KEY,
+     kind TEXT NOT NULL,                   -- still | look
+     ref_ids_json TEXT NOT NULL UNIQUE,
+     added_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE batches (
+     id INTEGER PRIMARY KEY,
+     status TEXT NOT NULL,                 -- running | review | closed
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     closed_at TEXT
+   );
+   CREATE TABLE drafts (
+     id INTEGER PRIMARY KEY,
+     batch_id INTEGER NOT NULL REFERENCES batches(id),
+     kind TEXT NOT NULL,
+     ref_ids_json TEXT NOT NULL,
+     name TEXT NOT NULL,
+     description TEXT NOT NULL DEFAULT '',
+     tags_json TEXT NOT NULL DEFAULT '[]',
+     settings_json TEXT NOT NULL,
+     version INTEGER NOT NULL DEFAULT 1,
+     status TEXT NOT NULL DEFAULT 'draft', -- draft | approved | rejected
+     reject_reason TEXT,
+     lr_verified INTEGER NOT NULL DEFAULT 0,
+     fit_loss REAL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE draft_versions (
+     id INTEGER PRIMARY KEY,
+     draft_id INTEGER NOT NULL REFERENCES drafts(id),
+     version INTEGER NOT NULL,
+     settings_json TEXT NOT NULL,
+     source TEXT NOT NULL,                 -- fit | claude | owner
+     note TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );`,
 ];
 
 export type DB = DatabaseSync;

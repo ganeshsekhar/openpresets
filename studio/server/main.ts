@@ -8,6 +8,39 @@ import { importRefs, isInside } from "./importer.ts";
 import { categorize, getSetting, LOOK_DEFAULTS, setSetting } from "./categorize.ts";
 import { claudePass, PER_SHEET, unclearRefs, type ClaudeResult } from "./claude.ts";
 import { GROUP_LABEL, GROUPS, TAXONOMY, type Group } from "./rules.ts";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { BATCH_SIZE, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
+import { blockedTerms, lintName } from "./names.ts";
+import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
+import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, testDir } from "./testphotos.ts";
+import { presetToXmp } from "../../src/xmp.ts";
+import { refineDraft } from "./refine.ts";
+
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const RENDERS_DIR = join(DATA_DIR, "renders");
+let lastBatch: { at: string; batchId?: number; drafts: number; errors: string[] } | null = null;
+let lastRefine: { at: string; draftId: number; ok: boolean; message: string } | null = null;
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+function refInfo(ids: number[]) {
+  return ids.map((id) => db.prepare(
+    "SELECT r.id, r.sha256, r.still_no AS stillNo, f.title FROM refs r JOIN films f ON f.id = r.film_id WHERE r.id = ?",
+  ).get(id)).filter(Boolean);
+}
+
+function draftRow(id: number) {
+  const d = db.prepare("SELECT * FROM drafts WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!d) return null;
+  const settings = JSON.parse(d.settings_json as string) as Settings;
+  return {
+    id: d.id, batchId: d.batch_id, kind: d.kind, refs: refInfo(JSON.parse(d.ref_ids_json as string)),
+    name: d.name, description: d.description, tags: JSON.parse(d.tags_json as string), settings,
+    hash: createHash("sha1").update(d.settings_json as string).digest("hex").slice(0, 12),
+    version: d.version, status: d.status, rejectReason: d.reject_reason, lrVerified: !!d.lr_verified, fitLoss: d.fit_loss,
+    nameIssues: lintName(String(d.name), blockedTerms(db)),
+  };
+}
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const db = openDb(DB_PATH);
@@ -243,6 +276,162 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     const r = db.prepare("UPDATE refs SET excluded = ? WHERE id = ?").run(excluded, Number(m[1]));
     if (!r.changes) return send(res, 404, { error: "Not found" });
     send(res, 200, { id: Number(m[1]), excluded: !!excluded });
+  }],
+
+  // ---------- M3: test photos ----------
+  ["GET", /^\/api\/testphotos$/, (_q, res) => send(res, 200, { photos: listTestPhotos(DATA_DIR), defaults: DEFAULT_SET.length, folder: testDir(DATA_DIR) })],
+
+  ["POST", /^\/api\/testphotos\/default$/, async (_q, res) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    job = { label: "Downloading test photos", progress: "" };
+    try {
+      send(res, 200, await downloadDefaultSet(DATA_DIR));
+    } catch (e) {
+      send(res, 500, { error: (e as Error).message });
+    } finally {
+      job = null;
+    }
+  }],
+
+  ["GET", /^\/testphoto\/([\w.-]+)$/, async (_q, res, m, url) => {
+    const path = resolve(testDir(DATA_DIR), m[1]);
+    if (!isInside(testDir(DATA_DIR), path)) return send(res, 404, { error: "Not found" });
+    const w = Math.min(1600, Number(url.searchParams.get("w")) || 640);
+    const out = join(RENDERS_DIR, `before-${m[1]}-${w}.jpg`);
+    if (!existsSync(out)) {
+      mkdirSync(RENDERS_DIR, { recursive: true });
+      writeFileSync(out, await renderFile(path, {}, w));
+    }
+    sendFile(res, out, "public, max-age=3600");
+  }],
+
+  // ---------- M3: queue + batches ----------
+  ["GET", /^\/api\/batch$/, (_q, res) => {
+    const open = openBatch(db);
+    const drafts = open
+      ? (db.prepare("SELECT id FROM drafts WHERE batch_id = ? ORDER BY id").all(open.id) as { id: number }[]).map((d) => draftRow(d.id))
+      : [];
+    const closed = db.prepare(
+      `SELECT b.id, b.closed_at AS closedAt, SUM(d.status = 'approved') AS approved, SUM(d.status = 'rejected') AS rejected
+         FROM batches b JOIN drafts d ON d.batch_id = b.id WHERE b.status = 'closed' GROUP BY b.id ORDER BY b.id DESC LIMIT 10`,
+    ).all();
+    send(res, 200, {
+      size: BATCH_SIZE,
+      queue: queueList(db).map((q) => ({ ...q, refs: refInfo(q.refIds) })),
+      open: open ? { ...open, drafts } : null,
+      blockers: runBlockers(db, DATA_DIR),
+      testPhotos: listTestPhotos(DATA_DIR).length,
+      job,
+      lastBatch,
+      closed,
+    });
+  }],
+
+  ["POST", /^\/api\/queue$/, async (req, res) => {
+    const { kind, refIds } = await readBody(req) as { kind: "still" | "look"; refIds: number[] };
+    const r = queueAdd(db, kind === "look" ? "look" : "still", (refIds ?? []).map(Number));
+    send(res, r.ok ? 200 : 400, r.ok ? { ok: true, queued: queueList(db).length } : { error: r.error });
+  }],
+
+  ["POST", /^\/api\/queue\/suggest$/, (_q, res) => send(res, 200, { added: suggest(db), queued: queueList(db).length })],
+
+  ["DELETE", /^\/api\/queue\/(\d+)$/, (_q, res, m) => {
+    db.prepare("DELETE FROM queue WHERE id = ?").run(Number(m[1]));
+    send(res, 200, { ok: true });
+  }],
+
+  ["POST", /^\/api\/batch\/run$/, (_q, res) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    const blockers = runBlockers(db, DATA_DIR);
+    if (blockers.length) return send(res, 400, { error: blockers[0] });
+    job = { label: "Running batch", progress: "Starting…" };
+    runBatch(db, DATA_DIR, REFS_DIR, REPO_ROOT, (msg) => { if (job) job.progress = msg; })
+      .then((r) => { lastBatch = { at: new Date().toISOString(), ...r }; })
+      .catch((e) => { lastBatch = { at: new Date().toISOString(), drafts: 0, errors: [(e as Error).message] }; })
+      .finally(() => { job = null; });
+    send(res, 202, { started: true });
+  }],
+
+  // ---------- M3: drafts ----------
+  ["GET", /^\/api\/sliders$/, (_q, res) => send(res, 200, SLIDERS)],
+
+  ["GET", /^\/api\/drafts\/(\d+)$/, (_q, res, m) => {
+    const d = draftRow(Number(m[1]));
+    if (!d) return send(res, 404, { error: "Not found" });
+    const versions = db.prepare("SELECT version, source, note, created_at AS at FROM draft_versions WHERE draft_id = ? ORDER BY version DESC").all(Number(m[1]));
+    send(res, 200, { ...d, versions });
+  }],
+
+  ["POST", /^\/api\/drafts\/(\d+)$/, async (req, res, m) => {
+    const id = Number(m[1]);
+    const d = draftRow(id);
+    if (!d) return send(res, 404, { error: "Not found" });
+    const body = await readBody(req) as {
+      settings?: Settings; name?: string; description?: string; tags?: unknown[]; status?: string; rejectReason?: string;
+      lrVerified?: boolean; restoreVersion?: number;
+    };
+    if (body.restoreVersion) {
+      const v = db.prepare("SELECT settings_json FROM draft_versions WHERE draft_id = ? AND version = ?").get(id, body.restoreVersion) as { settings_json: string } | undefined;
+      if (v) saveSettings(db, id, JSON.parse(v.settings_json), "owner", `Restored v${body.restoreVersion}`);
+    }
+    if (body.settings) saveSettings(db, id, body.settings, "owner");
+    if (typeof body.name === "string" && body.name.trim()) db.prepare("UPDATE drafts SET name = ? WHERE id = ?").run(body.name.trim().slice(0, 60), id);
+    if (typeof body.description === "string") db.prepare("UPDATE drafts SET description = ? WHERE id = ?").run(body.description.slice(0, 300), id);
+    if (Array.isArray(body.tags)) db.prepare("UPDATE drafts SET tags_json = ? WHERE id = ?").run(JSON.stringify(body.tags), id);
+    if (typeof body.lrVerified === "boolean") db.prepare("UPDATE drafts SET lr_verified = ? WHERE id = ?").run(body.lrVerified ? 1 : 0, id);
+    if (body.status && ["draft", "approved", "rejected"].includes(body.status)) {
+      if (body.status === "approved") {
+        const issues = lintName(String(draftRow(id)!.name), blockedTerms(db));
+        if (issues.length) return send(res, 400, { error: `Rename first: the name contains “${issues[0]}”.` });
+      }
+      db.prepare("UPDATE drafts SET status = ?, reject_reason = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(body.status, body.status === "rejected" ? (body.rejectReason ?? "").slice(0, 200) : null, id);
+      maybeCloseBatch(db, Number(d.batchId));
+    }
+    send(res, 200, draftRow(id));
+  }],
+
+  ["POST", /^\/api\/drafts\/(\d+)\/refine$/, async (req, res, m) => {
+    if (job) return send(res, 409, { error: `Busy: ${job.label}` });
+    const id = Number(m[1]);
+    const { note } = await readBody(req) as { note?: string };
+    if (!draftRow(id)) return send(res, 404, { error: "Not found" });
+    job = { label: "Claude is refining", progress: "Comparing reference and renders…" };
+    refineDraft(db, REFS_DIR, DATA_DIR, id, (note ?? "").slice(0, 300))
+      .then((r) => { lastRefine = { at: new Date().toISOString(), draftId: id, ok: true, message: `Updated ${r.changed} settings · “${r.name}”` }; })
+      .catch((e) => { lastRefine = { at: new Date().toISOString(), draftId: id, ok: false, message: (e as Error).message }; })
+      .finally(() => { job = null; });
+    send(res, 202, { started: true });
+  }],
+
+  ["GET", /^\/api\/job$/, (_q, res) => send(res, 200, { job, lastRefine, lastBatch })],
+
+  ["GET", /^\/api\/drafts\/(\d+)\/xmp$/, (_q, res, m) => {
+    const d = draftRow(Number(m[1]));
+    if (!d) return send(res, 404, { error: "Not found" });
+    const name = String(d.name);
+    const xmp = presetToXmp(
+      {
+        id: `draft-${d.id}`, name, slug: slug(name), category: "", tags: [], author: "OpenPresets", beforeUrl: "", afterUrl: "",
+        description: String(d.description), status: "Draft", dateAdded: "", downloads: 0, settings: toLightroom(d.settings as Settings),
+      },
+      { group: "OpenPresets (drafts)" },
+    );
+    res.writeHead(200, { "content-type": "application/rdf+xml", "content-disposition": `attachment; filename="${slug(name)}.xmp"` });
+    res.end(xmp);
+  }],
+
+  ["GET", /^\/render\/(\d+)\/([\w.-]+)$/, async (_q, res, m, url) => {
+    const d = draftRow(Number(m[1]));
+    const path = resolve(testDir(DATA_DIR), m[2]);
+    if (!d || !isInside(testDir(DATA_DIR), path)) return send(res, 404, { error: "Not found" });
+    const w = Math.min(1600, Number(url.searchParams.get("w")) || 640);
+    const out = join(RENDERS_DIR, `${d.hash}-${m[2]}-${w}.jpg`);
+    if (!existsSync(out)) {
+      mkdirSync(RENDERS_DIR, { recursive: true });
+      writeFileSync(out, await renderFile(path, d.settings as Settings, w));
+    }
+    sendFile(res, out, "public, max-age=31536000, immutable");
   }],
 
   ["GET", /^\/thumb\/([0-9a-f]{64})\.webp$/, (_q, res, m) => {
