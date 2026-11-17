@@ -53,6 +53,18 @@ transforms, never protected creative expression or trademarks.
 3. **Render fresh pairs.** Apply our own generated preset to those photos and
    export new before/after images (WebP). Never use a vendor's preview images
    on the site.
+4. **Own photos need a confirmation and a clean file.** Before one of our own
+   photos becomes a test/preview photo, the owner confirms: they took it
+   themselves, it is unedited, anyone recognizable in it agreed to appear on
+   openpresets.com, and it is released under CC0. Studio refuses the upload
+   without that tick, stores the statement and date with the photo's credit
+   and in its event log, and strips location, camera and date metadata.
+   No photos of children or of people who did not agree; when in doubt, use
+   a stock photo or a photo without recognizable people.
+5. **Stock photos are neutralized, not misrepresented.** Stock photos usually
+   arrive already graded; previews use a gently corrected neutral base of
+   the photo, and the "before" image on the site is that same base, so the
+   comparison shows only our preset's effect.
 
 ## Phase 5 — Licensing and disclaimers (publishing)
 
