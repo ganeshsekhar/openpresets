@@ -3,7 +3,7 @@
 // when you switch drafts; slider moves update canvases and labels in place.
 import { applySettings, SLIDERS } from "/ui/renderer-core.js";
 
-const KEY_N = 8; // first photos of the default set: portrait, lifestyle, café, food, travel, city, golden hour, street
+const KEY_N = 11; // first photos of the default set; with the reference that is 3 full rows of 4
 const SLIDER = Object.fromEntries(SLIDERS.map((s) => [s.key, s]));
 const COLORS = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 const SWATCH = { Red: "#e5484d", Orange: "#f2994a", Yellow: "#f2c94c", Green: "#46a758", Aqua: "#2bb5c2", Blue: "#3e7bfa", Purple: "#8e4ec6", Magenta: "#d6409f" };
@@ -106,25 +106,12 @@ function scheduleAll() {
   R.frame = setTimeout(drawAll, 0);
 }
 
-// Fit every tile (references + test photos) inside the visible area: pick
-// the column count that gives the biggest 3:2 tiles without scrolling.
+// Four tiles per row (two on narrow screens); tiles take the full width.
 function fitGrid() {
   const grid = $("#rv-grid");
   if (!grid) return;
-  const n = grid.children.length;
-  const gap = 8, cap = 20;
-  const W = grid.clientWidth;
-  const H = Math.max(320, window.innerHeight - grid.getBoundingClientRect().top - 16);
-  let best = { cols: 1, w: 0 };
-  for (let cols = 1; cols <= n; cols++) {
-    const rows = Math.ceil(n / cols);
-    const byW = (W - gap * (cols - 1)) / cols;
-    const byH = ((H - gap * (rows - 1)) / rows - cap) * 1.5;
-    const w = Math.min(byW, byH);
-    if (w > best.w) best = { cols, w };
-  }
-  grid.style.setProperty("--cols", best.cols);
-  grid.style.setProperty("--tile", `${Math.floor(best.w)}px`);
+  grid.style.setProperty("--cols", grid.clientWidth < 640 ? 2 : 4);
+  grid.style.setProperty("--tile", "minmax(0, 1fr)");
 }
 
 // ---------- saving ----------
