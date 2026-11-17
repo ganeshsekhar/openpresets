@@ -4,7 +4,7 @@ The local admin dashboard plus the agents that turn film stills into presets.
 Runs on the owner's Mac (later the Mac mini). Never deployed. Everything is
 started by a button; nothing runs on a schedule.
 
-Status: M1 built (References). M2+ planned. Decisions below were made with the owner on
+Status: M1 (References) and M2 (Categorize) built. M3+ planned. Decisions below were made with the owner on
 2026-11-16.
 
 ## Decisions
@@ -156,8 +156,13 @@ placeholder presets into Studio.
    `.json` info), dedupe by hash, thumbnails, moved/missing tracking, References
    screen with exclude and a full-size viewer. The owner downloads stills
    manually; no scraper.
-2. **M2 — Analysis + categorizer:** code analysis, rules, clustering, Claude
-   contact sheets, References screen.
+2. **M2 — Categorize (done):** free CIELAB analysis with letterbox cropping,
+   rule-based tags with confidence (Good for / Mood / Colour / Light), near-
+   duplicates by dHash, look groups by complete-linkage clustering (default
+   0.45, max 6, hard limits on warmth/tint/brightness/contrast, B&W never mixed
+   with colour; adjustable), optional Claude pass on unclear stills via the
+   local Claude Code CLI in contact sheets of 20, owner tag editing. Separate
+   from preset creation.
 3. **M3 — Renderer + style agent + Review:** test photo set, renderer, batch
    runner, Review screen, name linter.
 4. **M4 — Publish + site update:** export, previews, credits, push; site

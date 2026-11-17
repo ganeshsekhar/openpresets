@@ -30,6 +30,28 @@ const MIGRATIONS = [
      kind TEXT NOT NULL,
      detail_json TEXT NOT NULL DEFAULT '{}'
    );`,
+  // M2: analysis, tags, near-duplicates, look groups.
+  `CREATE TABLE analyses (
+     ref_id INTEGER PRIMARY KEY REFERENCES refs(id),
+     version INTEGER NOT NULL,
+     metrics_json TEXT NOT NULL,
+     dhash TEXT NOT NULL,
+     unclear INTEGER NOT NULL DEFAULT 0,
+     analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE tags (
+     ref_id INTEGER NOT NULL REFERENCES refs(id),
+     grp TEXT NOT NULL,
+     value TEXT NOT NULL,
+     confidence REAL NOT NULL,
+     source TEXT NOT NULL,                 -- rules | claude | owner | owner-removed
+     PRIMARY KEY (ref_id, grp, value)
+   );
+   CREATE INDEX tags_value ON tags(grp, value);
+   ALTER TABLE refs ADD COLUMN dup_of INTEGER;          -- representative of a near-duplicate set
+   ALTER TABLE refs ADD COLUMN look_group INTEGER;      -- id of the look group's first member
+   ALTER TABLE refs ADD COLUMN look_locked INTEGER NOT NULL DEFAULT 0; -- owner removed it from grouping
+   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 ];
 
 export type DB = DatabaseSync;

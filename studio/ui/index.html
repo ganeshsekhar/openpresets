@@ -13,8 +13,8 @@
     <aside class="side">
       <div class="brand">Open<i>Presets</i> <span>Studio</span></div>
       <nav>
-        <a class="on" href="#refs">References</a>
-        <span class="soon">Categorize <small>M2</small></span>
+        <a href="#refs" data-route="refs">References</a>
+        <a href="#categorize" data-route="categorize">Categorize</a>
         <span class="soon">Batches <small>M3</small></span>
         <span class="soon">Review <small>M3</small></span>
         <span class="soon">Presets <small>M4</small></span>
@@ -22,7 +22,7 @@
       <p class="side-foot">Local only · never deployed</p>
     </aside>
 
-    <main>
+    <main id="view-refs">
       <header class="top">
         <div>
           <h1>References</h1>
@@ -41,6 +41,40 @@
       <div id="content"></div>
     </main>
 
+    <main id="view-categorize" hidden>
+      <header class="top">
+        <div>
+          <h1>Categorize</h1>
+          <p class="muted" id="cat-stats">Loading…</p>
+        </div>
+        <div class="actions">
+          <button class="btn" id="claude" type="button" title="Uses your Claude plan. Runs only when you click.">Ask Claude</button>
+          <button class="btn primary" id="categorize" type="button">Analyse &amp; tag (free)</button>
+        </div>
+      </header>
+      <p class="job" id="job" hidden></p>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="tags" aria-selected="true">Tags</button>
+        <button type="button" role="tab" data-tab="looks" aria-selected="false">Look groups</button>
+      </div>
+      <section id="tab-tags" class="cat-layout">
+        <aside class="facets" id="facets"></aside>
+        <div id="cat-grid"></div>
+      </section>
+      <section id="tab-looks" hidden>
+        <div class="looks-bar">
+          <span>Grouping</span>
+          <span class="muted small">Tighter</span>
+          <input type="range" id="look-threshold" min="0.3" max="0.6" step="0.01" />
+          <span class="muted small">Looser</span>
+          <span class="small" id="look-value"></span>
+          <button class="btn" id="look-apply" type="button">Regroup</button>
+        </div>
+        <p class="muted small">Stills in a group have closely matching colour grading (complete-linkage: every pair must match, max 6 per group). One preset can cover a whole group.</p>
+        <div id="looks"></div>
+      </section>
+    </main>
+
     <div class="lightbox" id="lightbox" hidden>
       <button class="lb-close" type="button" data-lb="close" aria-label="Close">×</button>
       <button class="lb-nav prev" type="button" data-lb="prev" aria-label="Previous">‹</button>
@@ -48,6 +82,7 @@
       <button class="lb-nav next" type="button" data-lb="next" aria-label="Next">›</button>
       <div class="lb-info">
         <div><b id="lb-title"></b> <span class="muted" id="lb-meta"></span></div>
+        <div class="lb-tags" id="lb-tags"></div>
         <div class="lb-actions">
           <a id="lb-source" target="_blank" rel="noopener">Source</a>
           <button class="btn" type="button" data-lb="exclude" id="lb-exclude">Exclude</button>

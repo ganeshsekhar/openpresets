@@ -36,7 +36,25 @@ function trailingNumber(file: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-type JsonFile = { file?: string; source?: string; still?: number };
+/** "A_Different_Man_06.jpg", "A-Different-Man-11.jpg" → "a-different-man"; "45 (454).jpg" → "". */
+export function filmKeyFromFilename(file: string): string {
+  const name = basename(file, extname(file))
+    .replace(/[\s_-]*\(?\d+\)?[\s_-]*$/, "")
+    .replace(/[\s_-]+/g, " ")
+    .trim();
+  if (!name || /^\d+$/.test(name.replace(/\s/g, ""))) return "";
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function titleFromKey(key: string): string {
+  const words = key.split("-");
+  const small = new Set(["a", "an", "the", "of", "and", "in", "on", "at", "to", "for"]);
+  return words
+    .map((w, i) => (i > 0 && small.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+type JsonFile ={ file?: string; source?: string; still?: number };
 type FilmJson = { title?: string; slug?: string; meta?: Record<string, unknown>; page?: string; site?: string; files?: JsonFile[] };
 
 function readJson(path: string): FilmJson | null {
@@ -97,6 +115,29 @@ export function scanRefs(refsDir: string): ScannedGroup[] {
 
     const rest = images.filter((img) => !claimed.has(img));
     if (!rest.length) continue;
+
+    // A folder with no info file and several film names in its file names
+    // (e.g. "A_Different_Man_06.jpg", "Cure-01.jpg") is split by film name.
+    if (!records.length) {
+      const byFilm = new Map<string, string[]>();
+      for (const img of rest) {
+        const key = filmKeyFromFilename(img);
+        byFilm.set(key, [...(byFilm.get(key) ?? []), img]);
+      }
+      const named = [...byFilm.keys()].filter(Boolean);
+      if (named.length >= 2) {
+        for (const [key, imgs] of [...byFilm].sort(([a], [b]) => a.localeCompare(b))) {
+          groups.push({
+            folder: key ? (dir ? `${dir}/${key}` : key) : dir ? `${dir}/~unsorted` : "",
+            title: key ? titleFromKey(key) : "Unsorted",
+            meta: {},
+            images: imgs.sort().map((img) => ({ rel: dir ? `${dir}/${img}` : img, stillNo: trailingNumber(img), sourceUrl: null })),
+          });
+        }
+        continue;
+      }
+    }
+
     const data = records.length === 1 ? records[0].data! : records.find((r) => r.name === "film.json")?.data ?? null;
     const listed = new Map((data?.files ?? []).map((f) => [f.file ?? "", f]));
     groups.push({
@@ -141,7 +182,8 @@ export async function importRefs(db: DB, refsDir: string, thumbsDir: string): Pr
     "INSERT INTO refs (film_id, sha256, path, still_no, source_url, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
   const updatePath = db.prepare("UPDATE refs SET path = ?, film_id = ?, missing = 0 WHERE id = ?");
-  const clearMissing = db.prepare("UPDATE refs SET missing = 0 WHERE id = ?");
+  // Same file, same place: keep the row, but follow any change in grouping.
+  const regroup = db.prepare("UPDATE refs SET film_id = ?, still_no = COALESCE(?, still_no), missing = 0 WHERE id = ?");
 
   for (const g of groups) {
     const { id: filmId } = upsertFilm.get(g.folder, g.title, JSON.stringify(g.meta)) as { id: number };
@@ -159,7 +201,7 @@ export async function importRefs(db: DB, refsDir: string, thumbsDir: string): Pr
               updatePath.run(img.rel, filmId, existing.id);
               result.moved += 1;
             }
-          } else clearMissing.run(existing.id);
+          } else regroup.run(filmId, img.stillNo, existing.id);
           continue;
         }
         const image = sharp(abs, { failOn: "error" });

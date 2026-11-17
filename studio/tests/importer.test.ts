@@ -4,7 +4,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "../server/db.ts";
-import { humanize, importRefs, scanRefs } from "../server/importer.ts";
+import { filmKeyFromFilename, humanize, importRefs, scanRefs } from "../server/importer.ts";
 
 let root: string;
 let refs: string;
@@ -62,6 +62,40 @@ describe("scanRefs", () => {
       ["film-grab/happy-hour", "Happy Hour"],
     ]);
     expect(groups[0].images[0]).toMatchObject({ rel: "film-grab/fantasia_03.jpg", stillNo: 3, sourceUrl: "https://x/1.jpg" });
+  });
+});
+
+describe("filename grouping", () => {
+  it("reads the film from file names and merges _ / - variants", () => {
+    expect(filmKeyFromFilename("A_Different_Man_06.jpg")).toBe("a-different-man");
+    expect(filmKeyFromFilename("A-Different-Man-11.jpg")).toBe("a-different-man");
+    expect(filmKeyFromFilename("Cure-01.jpg")).toBe("cure");
+    expect(filmKeyFromFilename("Copshop_001.jpg")).toBe("copshop");
+    expect(filmKeyFromFilename("45 (454).jpg")).toBe("");
+  });
+
+  it("splits a shared folder with no info file into films", async () => {
+    await img(join(refs, "film-grab", "Cure_09.jpg"), 90);
+    await img(join(refs, "film-grab", "Cure-01.jpg"), 95);
+    await img(join(refs, "film-grab", "Copshop_012.jpg"), 100);
+    await img(join(refs, "film-grab", "45 (454).jpg"), 105);
+    const groups = scanRefs(refs);
+    expect(groups.map((g) => [g.folder, g.title, g.images.length])).toEqual([
+      ["film-grab/~unsorted", "Unsorted", 1],
+      ["film-grab/copshop", "Copshop", 1],
+      ["film-grab/cure", "Cure", 2],
+    ]);
+    expect(groups[2].images.map((i) => i.stillNo)).toEqual([1, 9]);
+  });
+
+  it("re-import moves existing stills into their film groups", async () => {
+    const db = openDb(":memory:");
+    await img(join(refs, "film-grab", "Cure_09.jpg"), 110);
+    await importRefs(db, refs, thumbs); // single film name: stays one group
+    await img(join(refs, "film-grab", "Copshop_012.jpg"), 115);
+    await importRefs(db, refs, thumbs);
+    const rows = db.prepare("SELECT f.title, COUNT(*) AS n FROM refs r JOIN films f ON f.id = r.film_id GROUP BY f.id ORDER BY f.title").all();
+    expect(rows.map((r: any) => [r.title, r.n])).toEqual([["Copshop", 1], ["Cure", 1]]);
   });
 });
 
