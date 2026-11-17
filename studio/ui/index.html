@@ -76,36 +76,39 @@
     </main>
 
     <main id="view-batches" hidden>
-      <header class="top">
+      <header class="top tight">
         <div>
           <h1>Processing</h1>
-          <p class="muted">Turn stills into draft presets, up to 10 at a time. Nothing runs until you press Run.</p>
+          <p class="muted small">Stills become draft presets, up to 10 at a time. Nothing runs until you press Run.</p>
         </div>
+        <button class="tp-chip" type="button" data-act="toggle-tp" id="tp-chip" hidden></button>
       </header>
 
-      <ol class="flow" id="flow"></ol>
+      <div class="setup" id="tp-setup" hidden></div>
+
+      <div id="proc-tabs" aria-label="Processing steps"></div>
       <p class="job" id="batch-job" hidden></p>
 
-      <section class="card-sec" id="queue-sec">
-        <div class="sec-head"><h2 id="queue-title">Next batch</h2><span class="muted small" id="queue-note"></span></div>
+      <section class="tab-panel" id="panel-choose">
+        <div class="sec-head toolbar"><h2 id="queue-title">Next batch</h2><span class="muted small" id="queue-note"></span><span class="grow"></span><div class="sec-actions" id="queue-actions"></div></div>
         <div id="queue"></div>
       </section>
 
-      <section class="card-sec rv-sec" id="open-sec" hidden>
-        <div class="sec-head"><h2 id="open-title">Review batch</h2><span class="muted small" id="open-note"></span></div>
+      <section class="tab-panel" id="panel-run" hidden>
+        <div id="run-box"></div>
+        <div id="closed-sec" hidden><h3 class="small">History</h3><div id="closed"></div></div>
+      </section>
+
+      <section class="tab-panel rv-sec" id="panel-review" hidden>
         <div class="review" id="review"></div>
       </section>
 
-      <details class="card-sec tp-details" id="tp-sec">
+      <details class="card-sec tp-details" id="tp-sec" hidden>
         <summary><span class="sec-title">Test photos</span><span class="muted small" id="tp-note"></span></summary>
         <p class="muted small">Every draft is previewed on these photos, and they become the public before/after images. Folder: <span class="folder-path" id="tp-folder"></span></p>
+        <div id="tp-update"></div>
         <div class="tp-row" id="tp-row"></div>
       </details>
-
-      <section class="card-sec" id="closed-sec" hidden>
-        <div class="sec-head"><h2>History</h2></div>
-        <div id="closed"></div>
-      </section>
     </main>
 
     <div class="lightbox" id="lightbox" hidden>
