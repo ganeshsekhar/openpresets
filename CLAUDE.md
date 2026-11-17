@@ -13,6 +13,12 @@ Deployed to GitHub Pages from `main` (ganeshsekhar/openpresets).
 - Ask before pushing anything else: legal text, data/CSV, the download or
   support flow logic, config URLs, or anything destructive.
 
+## Launch protocol
+
+`docs/launch-protocol.md` lists everything that must be done before public
+launch. When the owner says "add this to the launch protocol", add it there.
+When work completes an item, tick it. Mention open items when launch comes up.
+
 ## Legal protocol — always follow
 
 Every task that touches preset generation, naming, preview images, site copy
