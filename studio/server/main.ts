@@ -11,7 +11,7 @@ import { claudePass, PER_SHEET, unclearRefs, type ClaudeResult } from "./claude.
 import { GROUP_LABEL, GROUPS, TAXONOMY, type Group } from "./rules.ts";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { BATCH_SIZE, cancelBatch, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
+import { BATCH_SIZE, usedBy, cancelBatch, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
 import { blockedTerms, lintName } from "./names.ts";
 import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
 import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, retiredPresent, testDir } from "./testphotos.ts";
@@ -212,7 +212,8 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
           ORDER BY f.title COLLATE NOCASE, r.still_no, r.path`,
       )
       .all(film, film, showExcluded ? 1 : 0, tagValue, tagGrp, tagValue, unclearOnly, look, look) as { tags_json: string }[];
-    send(res, 200, rows.map(({ tags_json, ...r }) => ({ ...r, tags: JSON.parse(tags_json) })));
+    const used = usedBy(db);
+    send(res, 200, rows.map(({ tags_json, ...r }) => ({ ...r, tags: JSON.parse(tags_json), used: used.get((r as { id: number }).id) ?? null })));
   }],
 
   // ---------- M2: categorize ----------
@@ -282,10 +283,11 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
       .all() as { look: number; id: number; sha256: string; stillNo: number; title: string }[];
     const looks = new Map<number, typeof rows>();
     for (const r of rows) looks.set(r.look, [...(looks.get(r.look) ?? []), r]);
+    const usedForLooks = usedBy(db);
     send(res, 200, {
       threshold: getSetting(db, "look_threshold", LOOK_DEFAULTS.threshold),
       maxSize: getSetting(db, "look_max_size", LOOK_DEFAULTS.maxSize),
-      groups: [...looks].map(([id, members]) => ({ id, members })),
+      groups: [...looks].map(([id, members]) => ({ id, members: members.map((m) => ({ ...m, used: usedForLooks.get(m.id) ?? null })) })),
     });
   }],
 

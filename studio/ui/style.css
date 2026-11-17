@@ -547,3 +547,10 @@ body.collapsed .tray { left: calc(68px + 24px); }
 .tray-actions { display: flex; gap: 6px; flex: none; }
 @media (max-width: 760px) { .tray { left: 12px; right: 12px; flex-wrap: wrap; } .tray-items { order: 3; flex-basis: 100%; } }
 body:has(#cat-tray:not([hidden])) .facets { max-height: calc(100vh - 120px); }
+
+/* Categorize: Available / Used / All */
+.use-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.use-bar .seg { margin: 0; }
+.used-badge { position: absolute; left: 6px; bottom: 6px; right: 6px; width: fit-content; max-width: calc(100% - 12px); padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; color: #fff; background: rgb(0 0 0 / 0.62); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.look figure.is-used img { opacity: 0.55; }
+.used-note { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--muted); }

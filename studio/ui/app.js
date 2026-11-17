@@ -12,7 +12,7 @@ const state = {
   film: "",
   showExcluded: false,
   // categorize screen
-  cat: { status: null, taxonomy: [], refs: [], tag: "", unclear: false, tab: "tags", looks: null },
+  cat: { status: null, taxonomy: [], refs: [], allRefs: [], tag: "", unclear: false, tab: "tags", looks: null, use: "available" },
   // lightbox
   lb: { list: [], i: -1 },
 };
@@ -74,7 +74,8 @@ function tileHTML(r, i, list) {
     <img src="/thumb/${r.sha256}.webp" alt="" loading="lazy" />
     ${r.stillNo != null ? `<span class="no">#${r.stillNo}</span>` : ""}
     <button class="x" type="button" data-exclude="${r.id}" title="${r.excluded ? "Include again" : "Exclude"}" aria-label="${r.excluded ? "Include again" : "Exclude"}">${r.excluded ? "↺" : "✕"}</button>
-    ${list === "cat" && !r.excluded ? `<button class="add-batch" type="button" data-queue-still="${r.id}" data-qref="${r.id}">+ Batch</button>` : ""}
+    ${list === "cat" && r.used ? `<span class="used-badge" title="Used by the preset “${esc(r.used.name)}”">${r.used.status === "approved" ? "✓ " : "In review · "}${esc(r.used.name)}</span>`
+      : list === "cat" && !r.excluded ? `<button class="add-batch" type="button" data-queue-still="${r.id}" data-qref="${r.id}">+ Batch</button>` : ""}
   </div>`;
 }
 
@@ -172,11 +173,17 @@ function renderCatGrid() {
     grid.innerHTML = `<div class="empty"><h2>Not analysed yet</h2><p>Click <b>Analyse &amp; tag (free)</b>. It measures each still's colour grading on this Mac, tags it, and groups similar looks. No AI, no cost.</p></div>`;
     return;
   }
+  const all = state.cat.allRefs;
+  const seg = useBarHTML();
   if (!list.length) {
-    grid.innerHTML = `<div class="empty"><h2>No stills match</h2><p>Pick another tag or show all stills.</p></div>`;
+    grid.innerHTML = seg + (state.cat.use === "used"
+      ? `<div class="empty"><h2>Nothing used yet</h2><p>Stills appear here once a batch drafts them into presets.</p></div>`
+      : state.cat.use === "available" && all.length
+        ? `<div class="empty"><h2>Every still here is used</h2><p>All stills matching this filter are already in a preset. Import more, or pick another tag.</p></div>`
+        : `<div class="empty"><h2>No stills match</h2><p>Pick another tag or show all stills.</p></div>`);
     return;
   }
-  grid.innerHTML = `<div class="grid">${list
+  grid.innerHTML = seg + `<div class="grid">${list
     .map((r, i) => {
       const chips = sortTags(r.tags).filter((t) => t.grp !== "color").slice(0, 4);
       return `<div class="card">
@@ -194,21 +201,27 @@ function renderLooks() {
   const slider = $("#look-threshold");
   if (document.activeElement !== slider) slider.value = data.threshold;
   $("#look-value").textContent = Number(slider.value).toFixed(2);
-  $("#looks").innerHTML = data.groups.length
-    ? data.groups
+  const use = state.cat.use;
+  const groups = data.groups.map((g, gi) => ({ ...g, n: gi + 1, usedN: g.members.filter((m) => m.used).length }))
+    .filter((g) => use === "all" || (use === "used" ? g.usedN > 0 : g.usedN < g.members.length));
+  $("#looks").innerHTML = useBarHTML(true) + (groups.length
+    ? groups
         .map(
-          (g, gi) => `<section class="look"><div class="look-head">Look ${gi + 1} · ${g.members.length} stills
-            <button class="btn" type="button" style="margin-left:8px;padding:4px 10px;font-size:12px" data-queue-look="${g.members.map((m) => m.id).join(",")}" data-qlook="${g.members.map((m) => m.id).join(",")}">+ Add group to batch</button></div>
+          (g) => `<section class="look"><div class="look-head">Look ${g.n} · ${g.members.length} stills
+            ${g.usedN
+              ? `<span class="used-note" title="${esc(g.members.filter((m) => m.used).map((m) => m.used.name).join(", "))}">${g.usedN === g.members.length ? "Used" : `${g.usedN} already used · add the others one by one in Tags`}</span>`
+              : `<button class="btn" type="button" style="margin-left:8px;padding:4px 10px;font-size:12px" data-queue-look="${g.members.map((m) => m.id).join(",")}" data-qlook="${g.members.map((m) => m.id).join(",")}">+ Add group to batch</button>`}</div>
           <div class="look-row">${g.members
             .map(
-              (m) => `<figure><div class="tile" data-look-ref="${m.id}"><img src="/thumb/${m.sha256}.webp" alt="" loading="lazy" />
+              (m) => `<figure class="${m.used ? "is-used" : ""}"><div class="tile" data-look-ref="${m.id}"><img src="/thumb/${m.sha256}.webp" alt="" loading="lazy" />${m.used ? `<span class="used-badge" title="Used by “${esc(m.used.name)}”">${esc(m.used.name)}</span>` : ""}
                 <button class="x" type="button" data-unlook="${m.id}" title="Remove from this group" aria-label="Remove from group">✕</button></div>
                 <figcaption>${esc(m.title)}${m.stillNo != null ? ` #${m.stillNo}` : ""}</figcaption></figure>`,
             )
             .join("")}</div></section>`,
         )
         .join("")
-    : `<div class="empty"><h2>No look groups</h2><p>No stills are close enough at this setting. Move the slider towards “Looser” and click Regroup, or run Analyse &amp; tag first.</p></div>`;
+    : data.groups.length ? `<div class="empty"><h2>No look groups in “${use === "used" ? "Used" : "Available"}”</h2><p>Switch the filter above to see the others.</p></div>`
+    : `<div class="empty"><h2>No look groups</h2><p>No stills are close enough at this setting. Move the slider towards “Looser” and click Regroup, or run Analyse &amp; tag first.</p></div>`);
 }
 
 async function loadCategorize() {
@@ -223,7 +236,8 @@ async function loadCategorize() {
     api("/api/looks"),
     refreshQueue(),
   ]);
-  Object.assign(state.cat, { status, taxonomy, refs, looks });
+  Object.assign(state.cat, { status, taxonomy, allRefs: refs, looks });
+  applyUseFilter();
   setTimeout(syncQueueButtons, 0);
   state.films = films;
   renderCatStatus();
@@ -960,3 +974,27 @@ document.addEventListener("click", async (e) => {
     toast(err.message);
   }
 });
+
+// ---------- Available / Used / All filter for Categorize ----------
+function applyUseFilter() {
+  const u = state.cat.use;
+  state.cat.refs = state.cat.allRefs.filter((r) => u === "all" || (u === "used" ? !!r.used : !r.used));
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-use]");
+  if (!b) return;
+  state.cat.use = b.dataset.use;
+  applyUseFilter();
+  renderCatGrid();
+  renderLooks();
+});
+
+function useBarHTML(looks = false) {
+  const all = state.cat.allRefs;
+  const nUsed = all.filter((r) => r.used).length;
+  const u = state.cat.use;
+  return `<div class="use-bar"><div class="seg" role="group" aria-label="Show stills">
+      ${[["available", "Available", all.length - nUsed], ["used", "Used", nUsed], ["all", "All", all.length]].map(([v, l, n]) =>
+        `<button type="button" data-use="${v}" aria-pressed="${u === v}">${l}${looks ? "" : ` <span class="muted">${n}</span>`}</button>`).join("")}
+    </div><span class="muted small">${u === "available" ? "Not yet turned into a preset. Add them to the next batch." : u === "used" ? "Already in a preset (in review or approved). Rejecting a draft frees its stills." : ""}</span></div>`;
+}

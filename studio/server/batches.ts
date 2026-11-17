@@ -28,6 +28,15 @@ export function usedRefIds(db: DB): Set<number> {
   return new Set(rows.flatMap((r) => parseIds(r.ref_ids_json)));
 }
 
+/** Which draft uses each still (drafts that weren't rejected or cancelled). */
+export function usedBy(db: DB): Map<number, { draftId: number; name: string; status: string }> {
+  const rows = db.prepare("SELECT id, name, status, ref_ids_json FROM drafts WHERE status NOT IN ('rejected', 'cancelled') ORDER BY id").all() as
+    { id: number; name: string; status: string; ref_ids_json: string }[];
+  const m = new Map<number, { draftId: number; name: string; status: string }>();
+  for (const d of rows) for (const id of parseIds(d.ref_ids_json)) m.set(id, { draftId: d.id, name: d.name, status: d.status });
+  return m;
+}
+
 export function queueAdd(db: DB, kind: "still" | "look", refIds: number[]): { ok: boolean; error?: string } {
   const ids = [...new Set(refIds)].sort((a, b) => a - b);
   if (!ids.length) return { ok: false, error: "Nothing to add" };
