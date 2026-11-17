@@ -511,51 +511,91 @@ async function loadBatches() {
   if (b.job) pollBatchJob();
 }
 
+function flowStep(n, state, title, status, action) {
+  return `<li class="${state}"><span class="f-num">${state === "done" ? "✓" : n}</span><span class="f-title">${title}</span><span class="f-status">${status}</span><div class="f-action">${action}</div></li>`;
+}
+
 function renderBatches() {
   const b = state.batch, tp = state.tp;
-  $("#batch-stats").textContent = `${b.queue.length}/${b.size} queued · ${b.testPhotos} test photos${b.open ? ` · batch #${b.open.id} open` : ""}`;
-  const run = $("#run-batch");
-  run.disabled = !!b.blockers.length || !!b.job;
-  run.textContent = b.job ? "Running…" : `Run batch (${b.queue.length})`;
-  run.title = b.blockers[0] ?? "";
-  $("#batch-blockers").innerHTML = b.blockers.map((x) => `<div class="blocker">${esc(x)}</div>`).join("");
+  const photosReady = tp.photos.length >= 3;
+  const updateAvailable = !!(tp.missingDefaults || tp.retired.length) && tp.photos.length > 0;
+  const hasQueue = b.queue.length > 0;
+  const open = b.open;
+  const toReview = open ? open.drafts.filter((d) => d.status === "draft").length : 0;
+  const busy = !!b.job;
+  // Which step is current: photos → choose → run → review.
+  const current = !photosReady ? 1 : open ? 4 : !hasQueue ? 2 : 3;
+  const st = (n) => (n < current ? "done" : n === current ? "current" : "later");
+
+  const tpStatus = tp.photos.length === 0
+    ? `Previews need test photos. Download the ${tp.defaults} curated photos (portrait, café, food, travel, city…).`
+    : updateAvailable
+      ? `${tp.photos.length} ready · ${tp.missingDefaults} new available${tp.retired.length ? `, ${tp.retired.length} to retire` : ""}.`
+      : `${tp.photos.length} photos ready.`;
+  const tpAction = photosReady
+    ? `<button class="btn" type="button" data-act="toggle-tp">View</button>${updateAvailable ? `<button class="btn" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>Update set</button>` : ""}`
+    : `<button class="btn primary" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>${tp.photos.length ? "Update set" : `Download ${tp.defaults} photos`}</button>`;
+
+  const chooseStatus = open ? "Locked while a batch is open." : hasQueue ? `${b.queue.length} of ${b.size} chosen.` : `Pick up to ${b.size} stills or look groups.`;
+  const chooseAction = open ? "" : `<button class="btn ${current === 2 ? "primary" : ""}" type="button" data-act="suggest" ${b.queue.length >= b.size || busy ? "disabled" : ""}>${hasQueue ? "Fill with suggestions" : `Suggest ${b.size}`}</button>
+    <a class="f-link" href="#categorize">Pick in Categorize</a>`;
+
+  const runStatus = busy ? `${b.job.label}… ${b.job.progress || ""}` : open ? `Batch #${open.id} drafted.` : hasQueue ? `Drafts ${b.queue.length} preset${b.queue.length === 1 ? "" : "s"} (free, ~2 s each), then stops.` : "Choose stills first.";
+  const runAction = open ? "" : `<button class="btn ${current === 3 ? "primary" : ""}" type="button" data-act="run" ${b.blockers.length || busy ? "disabled" : ""} title="${esc(b.blockers[0] ?? "")}">${busy ? "Running…" : `Run batch${hasQueue ? ` (${b.queue.length})` : ""}`}</button>`;
+
+  const reviewStatus = open ? (toReview ? `${toReview} of ${open.drafts.length} drafts to review.` : "All decided.") : "Approve, tweak or reject each draft.";
+  const reviewAction = open ? `<a class="btn ${current === 4 ? "primary" : ""}" href="#review">Review drafts</a>` : "";
+
+  $("#flow").innerHTML =
+    flowStep(1, st(1), "Test photos", tpStatus, tpAction) +
+    flowStep(2, st(2), "Choose stills", chooseStatus, chooseAction) +
+    flowStep(3, st(3), "Run batch", runStatus, runAction) +
+    flowStep(4, st(4), "Review", reviewStatus, reviewAction);
+
   const job = $("#batch-job");
-  if (b.job) { job.hidden = false; job.textContent = `${b.job.label}… ${b.job.progress || ""}`; }
-  else if (b.lastBatch) { job.hidden = false; job.textContent = `Last run: ${b.lastBatch.drafts} drafts${b.lastBatch.errors.length ? `, ${b.lastBatch.errors.length} failed (${b.lastBatch.errors[0]})` : ""}.`; }
+  if (!busy && b.lastBatch?.errors.length) { job.hidden = false; job.textContent = `Last run: ${b.lastBatch.drafts} drafts, ${b.lastBatch.errors.length} failed (${b.lastBatch.errors[0]}).`; }
   else job.hidden = true;
 
-  // test photos
-  const missing = tp.photos.filter((p) => !p.credit).length;
-  $("#tp-note").textContent = `${tp.photos.length} photos in ${tp.folder}${missing ? ` · ${missing} missing a credit` : ""}`;
-  $("#tp-default").hidden = tp.photos.length >= tp.defaults;
-  $("#tp-row").innerHTML = tp.photos.length
-    ? tp.photos.map((p) => `<figure><img src="/testphoto/${encodeURIComponent(p.file)}?w=320" alt="" loading="lazy" /><figcaption>${esc(p.subject)} · ${p.credit ? esc(p.credit.author) : '<span class="warn">no credit</span>'}</figcaption></figure>`).join("")
-    : `<div class="blocker">No test photos yet. “Download default set” fetches 8 photos (portrait, lifestyle, café, food, interior, travel, city, product; about 2 MB) from Unsplash via picsum.photos and records their credits. You can also add your own CC0/Unsplash photos to the folder.</div>`;
+  // Next batch (hidden while a batch is open: the queue is locked then)
+  $("#queue-sec").hidden = !!open;
+  $("#queue-note").textContent = hasQueue ? `${b.size - b.queue.length} slot${b.size - b.queue.length === 1 ? "" : "s"} left` : "";
+  $("#queue").innerHTML = hasQueue
+    ? `<div class="queue-grid">${b.queue.map((q, i) => `<div class="q-card">
+          <div class="q-img" style="--n:${Math.min(3, q.refs.length)}">${q.refs.slice(0, 3).map((r) => `<img src="/thumb/${r.sha256}.webp" alt="" loading="lazy" />`).join("")}</div>
+          <span class="q-kind">${q.kind === "look" ? `Look · ${q.refs.length}` : "Still"}</span>
+          <button class="q-x" type="button" data-unqueue="${q.id}" aria-label="Remove from batch">×</button>
+          <div class="q-meta"><b>${esc(q.refs[0]?.title ?? "")}${q.refs[0]?.stillNo != null ? ` #${q.refs[0].stillNo}` : ""}</b>
+            <span class="muted">${q.kind === "look" ? `${q.refs.length} similar stills → 1 preset` : `Preset ${i + 1}`}</span></div>
+        </div>`).join("")}${Array.from({ length: b.size - b.queue.length }, () => '<div class="q-slot">Empty slot</div>').join("")}</div>`
+    : `<div class="choices">
+        <button class="choice primary" type="button" data-act="suggest" ${!photosReady || busy ? "disabled" : ""}><b>Suggest ${b.size} for me</b>
+          <span>Picks varied stills and look groups you haven't used yet, clearest first.</span></button>
+        <a class="choice" href="#categorize"><b>Pick them myself</b>
+          <span>In Categorize, hover a still and click “+ Batch”, or add a whole look group.</span></a>
+      </div>`;
 
-  // queue
-  $("#queue-note").textContent = b.queue.length ? `${b.size - b.queue.length} slots free` : "Add stills or look groups from Categorize (+ Batch), or click Suggest.";
-  $("#suggest").disabled = b.queue.length >= b.size;
-  $("#queue").innerHTML = b.queue
-    .map((q, i) => `<div class="q-item"><b>${i + 1}</b><div class="q-thumbs">${q.refs.map((r) => `<img src="/thumb/${r.sha256}.webp" alt="" />`).join("")}</div>
-      <div class="grow"><div>${esc(q.refs.map((r) => `${r.title}${r.stillNo != null ? ` #${r.stillNo}` : ""}`).join(" · "))}</div>
-      <div class="muted small">${q.kind === "look" ? `Look group · ${q.refs.length} stills → one preset` : "Single still"}</div></div>
-      <button class="x-btn" type="button" data-unqueue="${q.id}" aria-label="Remove">×</button></div>`)
-    .join("");
-
-  // open batch
-  $("#open-sec").hidden = !b.open;
-  if (b.open) {
-    const d = b.open.drafts;
-    const left = d.filter((x) => x.status === "draft").length;
-    $("#open-note").textContent = `${d.length} drafts · ${left} to review`;
+  // Open batch drafts
+  $("#open-sec").hidden = !open;
+  if (open) {
     const first = tp.photos[0]?.file;
-    $("#open-drafts").innerHTML = d
+    $("#open-note").textContent = `${open.drafts.length} drafts · ${toReview} to review`;
+    $("#open-drafts").innerHTML = open.drafts
       .map((x) => `<a class="draft-card" href="#review/${x.id}">${first ? `<img src="/render/${x.id}/${encodeURIComponent(first)}?w=480&h=${x.hash}" alt="" loading="lazy" />` : ""}
-        <div><b>${esc(x.name)}</b><span class="status ${x.status}">${x.status}</span></div></a>`)
+        <div><b>${esc(x.name)}</b><span class="status ${x.status}">${x.status === "draft" ? "to review" : x.status}</span></div></a>`)
       .join("");
   }
+
+  // Test photos
+  $("#tp-note").textContent = `${tp.photos.length} photos${tp.photos.filter((p) => !p.credit).length ? ` · ${tp.photos.filter((p) => !p.credit).length} missing a credit` : ""}`;
+  $("#tp-folder").textContent = tp.folder;
+  $("#tp-folder").dataset.copy = tp.folder;
+  $("#tp-row").innerHTML = tp.photos.length
+    ? tp.photos.map((p) => `<figure><img src="/testphoto/${encodeURIComponent(p.file)}?w=320" alt="" loading="lazy" /><figcaption>${esc(p.subject)} · ${p.credit ? esc(p.credit.author) : '<span class="warn">no credit</span>'}</figcaption></figure>`).join("")
+    : "";
+
   $("#closed-sec").hidden = !b.closed.length;
   $("#closed").innerHTML = b.closed.map((c) => `<div class="muted small">Batch #${c.id} · ${c.approved} approved · ${c.rejected} rejected · closed ${new Date(c.closedAt + "Z").toLocaleString()}</div>`).join("");
+  refreshNav();
 }
 
 let batchPolling = false;
@@ -699,38 +739,6 @@ document.addEventListener("click", async (e) => {
   if (restore) return updateDraft({ restoreVersion: Number(restore.dataset.restore) }, `Restored v${restore.dataset.restore}`);
 });
 
-$("#run-batch").addEventListener("click", async () => {
-  try {
-    await api("/api/batch/run", { method: "POST" });
-    toast("Batch started");
-    state.batch = await api("/api/batch");
-    renderBatches();
-    pollBatchJob();
-  } catch (e) {
-    toast(e.message);
-  }
-});
-$("#suggest").addEventListener("click", async () => {
-  const r = await api("/api/queue/suggest", { method: "POST" });
-  toast(r.added ? `Added ${r.added} varied items` : "Nothing left to suggest");
-  loadBatches();
-});
-$("#tp-default").addEventListener("click", async () => {
-  if (!confirm("Download 8 test photos (about 2 MB) from Unsplash via picsum.photos into your test-photos folder, with their credits?")) return;
-  const btn = $("#tp-default");
-  btn.disabled = true;
-  btn.textContent = "Downloading…";
-  try {
-    const r = await api("/api/testphotos/default", { method: "POST" });
-    toast(`Test photos: ${r.saved.length} downloaded${r.skipped.length ? `, ${r.skipped.length} already there` : ""}`);
-    await loadBatches();
-  } catch (e) {
-    toast(e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Download default set";
-  }
-});
 
 // Sliders: live value while dragging, save on release.
 document.addEventListener("input", (e) => {
@@ -789,3 +797,49 @@ document.addEventListener("click", async (e) => {
   };
   es.addEventListener("reload", () => location.reload());
 })();
+
+// ---------- Batches actions (delegated) ----------
+document.addEventListener("click", async (e) => {
+  const act = e.target.closest?.("[data-act]");
+  if (!act || act.disabled) return;
+  const a = act.dataset.act;
+  if (a === "toggle-tp") { const d = $("#tp-sec"); d.open = !d.open; d.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  try {
+    if (a === "suggest") {
+      const r = await api("/api/queue/suggest", { method: "POST" });
+      toast(r.added ? `Added ${r.added} varied items` : "Nothing left to suggest");
+    } else if (a === "run") {
+      await api("/api/batch/run", { method: "POST" });
+      toast("Batch started");
+      pollBatchJob();
+    } else if (a === "download-tp") {
+      const tp = state.tp;
+      const msg = tp.photos.length
+        ? `Update the test photos? ${tp.missingDefaults} new photo(s) will be downloaded from Unsplash via picsum.photos${tp.retired.length ? `, and ${tp.retired.join(", ")} moved to a “removed” subfolder` : ""}.`
+        : `Download ${tp.defaults} test photos (about 5 MB) from Unsplash via picsum.photos into your test-photos folder, with their credits?`;
+      if (!confirm(msg)) return;
+      act.disabled = true;
+      act.textContent = "Downloading…";
+      const r = await api("/api/testphotos/default", { method: "POST" });
+      toast(`Test photos: ${r.saved.length} added${r.retired.length ? `, ${r.retired.length} retired` : ""}`);
+    }
+    await loadBatches();
+  } catch (err) {
+    toast(err.message);
+    loadBatches();
+  }
+});
+
+// ---------- Sidebar counts ----------
+async function refreshNav() {
+  try {
+    const n = await api("/api/nav");
+    const set = (id, text, cls = "") => { const el = $(id); el.textContent = text; el.className = cls; };
+    set("#nb-refs", n.refs ? String(n.refs) : "");
+    set("#nb-categorize", n.unclear ? `${n.unclear} unclear` : "", n.unclear ? "warn" : "");
+    set("#nb-batches", n.running ? "running" : n.queued ? `${n.queued}/${n.size}` : "", n.running ? "hot" : "");
+    set("#nb-review", n.toReview ? String(n.toReview) : "", n.toReview ? "hot" : "");
+  } catch {}
+}
+refreshNav();
+window.addEventListener("hashchange", refreshNav);

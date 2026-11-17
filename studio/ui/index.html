@@ -12,12 +12,13 @@
   <body>
     <aside class="side">
       <div class="brand">Open<i>Presets</i> <span>Studio</span></div>
-      <nav>
-        <a href="#refs" data-route="refs">References</a>
-        <a href="#categorize" data-route="categorize">Categorize</a>
-        <a href="#batches" data-route="batches">Batches</a>
-        <a href="#review" data-route="review">Review</a>
-        <span class="soon">Presets <small>M4</small></span>
+      <p class="nav-label">Workflow</p>
+      <nav class="steps-nav">
+        <a href="#refs" data-route="refs"><i>1</i><span>References</span><b id="nb-refs"></b></a>
+        <a href="#categorize" data-route="categorize"><i>2</i><span>Categorize</span><b id="nb-categorize"></b></a>
+        <a href="#batches" data-route="batches"><i>3</i><span>Batches</span><b id="nb-batches"></b></a>
+        <a href="#review" data-route="review"><i>4</i><span>Review</span><b id="nb-review"></b></a>
+        <span class="soon"><i>5</i><span>Publish</span><b>M4</b></span>
       </nav>
       <p class="side-foot">Local only · never deployed</p>
     </aside>
@@ -79,33 +80,32 @@
       <header class="top">
         <div>
           <h1>Batches</h1>
-          <p class="muted" id="batch-stats">Loading…</p>
+          <p class="muted">Turn stills into draft presets, up to 10 at a time. Nothing runs until you press Run.</p>
         </div>
-        <button class="btn primary" id="run-batch" type="button">Run batch</button>
       </header>
+
+      <ol class="flow" id="flow"></ol>
       <p class="job" id="batch-job" hidden></p>
-      <div id="batch-blockers"></div>
 
-      <section class="panel-sec" id="tp-sec">
-        <div class="sec-head"><h2>Test photos</h2><span class="muted small" id="tp-note"></span>
-          <span class="grow"></span><button class="btn" id="tp-default" type="button">Download default set</button></div>
-        <div class="tp-row" id="tp-row"></div>
-      </section>
-
-      <section class="panel-sec">
-        <div class="sec-head"><h2>Next batch</h2><span class="muted small" id="queue-note"></span>
-          <span class="grow"></span><button class="btn" id="suggest" type="button">Suggest</button></div>
+      <section class="card-sec" id="queue-sec">
+        <div class="sec-head"><h2 id="queue-title">Next batch</h2><span class="muted small" id="queue-note"></span></div>
         <div id="queue"></div>
       </section>
 
-      <section class="panel-sec" id="open-sec" hidden>
-        <div class="sec-head"><h2>Open batch</h2><span class="muted small" id="open-note"></span>
+      <section class="card-sec" id="open-sec" hidden>
+        <div class="sec-head"><h2>Drafts in this batch</h2><span class="muted small" id="open-note"></span>
           <span class="grow"></span><a class="btn primary" href="#review">Review drafts</a></div>
         <div class="draft-grid" id="open-drafts"></div>
       </section>
 
-      <section class="panel-sec" id="closed-sec" hidden>
-        <div class="sec-head"><h2>Closed batches</h2></div>
+      <details class="card-sec tp-details" id="tp-sec">
+        <summary><span class="sec-title">Test photos</span><span class="muted small" id="tp-note"></span></summary>
+        <p class="muted small">Every draft is previewed on these photos, and they become the public before/after images. Folder: <span class="folder-path" id="tp-folder"></span></p>
+        <div class="tp-row" id="tp-row"></div>
+      </details>
+
+      <section class="card-sec" id="closed-sec" hidden>
+        <div class="sec-head"><h2>History</h2></div>
         <div id="closed"></div>
       </section>
     </main>

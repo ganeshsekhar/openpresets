@@ -68,6 +68,21 @@ describe("fitter", () => {
   });
 });
 
+describe("test photos", () => {
+  it("retires a dropped default photo by moving it aside, only if it is ours", async () => {
+    const { retiredPresent, listTestPhotos } = await import("../server/testphotos.ts");
+    const dir = join(root, "test-photos");
+    mkdirSync(dir, { recursive: true });
+    await photo(join(dir, "portrait.jpg"), [200, 150, 120], [60, 40, 30]);
+    writeFileSync(join(dir, "credits.json"), JSON.stringify({ "portrait.jpg": { author: "Alexander Shustov", url: "u", license: "Unsplash License" } }));
+    expect(retiredPresent(root)).toEqual(["portrait.jpg"]);
+    // Owner's own file with the same name is never touched.
+    writeFileSync(join(dir, "credits.json"), JSON.stringify({ "portrait.jpg": { author: "Me", url: "", license: "own" } }));
+    expect(retiredPresent(root)).toEqual([]);
+    expect(listTestPhotos(root).map((p) => p.file)).toEqual(["portrait.jpg"]);
+  });
+});
+
 describe("names", () => {
   it("blocks film titles and brands, allows descriptive names", () => {
     const blocked = ["copshop", "kodak", "portra", "summer of 85"];

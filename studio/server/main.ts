@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { BATCH_SIZE, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
 import { blockedTerms, lintName } from "./names.ts";
 import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
-import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, testDir } from "./testphotos.ts";
+import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, retiredPresent, testDir } from "./testphotos.ts";
 import { presetToXmp } from "../../src/xmp.ts";
 import { refineDraft } from "./refine.ts";
 
@@ -132,6 +132,19 @@ function summary() {
 
 const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray, url: URL) => unknown][] = [
   ["GET", /^\/api\/summary$/, (_q, res) => send(res, 200, summary())],
+
+  ["GET", /^\/api\/nav$/, (_q, res) => {
+    const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+    const open = openBatch(db);
+    send(res, 200, {
+      refs: n("SELECT COUNT(*) AS n FROM refs WHERE missing = 0 AND excluded = 0"),
+      unclear: unclearRefs(db).length,
+      queued: queueList(db).length,
+      size: BATCH_SIZE,
+      toReview: open ? n(`SELECT COUNT(*) AS n FROM drafts WHERE batch_id = ${open.id} AND status = 'draft'`) : 0,
+      running: !!job,
+    });
+  }],
 
   ["GET", /^\/api\/live$/, (req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
@@ -309,7 +322,15 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
   }],
 
   // ---------- M3: test photos ----------
-  ["GET", /^\/api\/testphotos$/, (_q, res) => send(res, 200, { photos: listTestPhotos(DATA_DIR), defaults: DEFAULT_SET.length, folder: testDir(DATA_DIR) })],
+  ["GET", /^\/api\/testphotos$/, (_q, res) => {
+    const photos = listTestPhotos(DATA_DIR);
+    const have = new Set(photos.map((p) => p.file));
+    send(res, 200, {
+      photos, defaults: DEFAULT_SET.length, folder: testDir(DATA_DIR),
+      missingDefaults: DEFAULT_SET.filter((d) => !have.has(d.file)).length,
+      retired: retiredPresent(DATA_DIR),
+    });
+  }],
 
   ["POST", /^\/api\/testphotos\/default$/, async (_q, res) => {
     if (job) return send(res, 409, { error: `Busy: ${job.label}` });
