@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, watch } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,20 @@ const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const RENDERS_DIR = join(DATA_DIR, "renders");
 let lastBatch: { at: string; batchId?: number; drafts: number; errors: string[] } | null = null;
 let lastRefine: { at: string; draftId: number; ok: boolean; message: string } | null = null;
+
+// Live reload: the browser tab reloads when the server restarts (new boot id)
+// or when files in ui/ change. Server code changes restart Node via --watch.
+const BOOT_ID = String(Date.now());
+const liveClients = new Set<ServerResponse>();
+let uiTimer: ReturnType<typeof setTimeout> | undefined;
+try {
+  watch(fileURLToPath(new URL("../ui/", import.meta.url)), () => {
+    clearTimeout(uiTimer);
+    uiTimer = setTimeout(() => { for (const c of liveClients) c.write("event: reload\ndata: ui\n\n"); }, 150);
+  });
+} catch (e) {
+  console.warn("Live reload for ui/ is off:", (e as Error).message);
+}
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 function refInfo(ids: number[]) {
@@ -118,6 +132,22 @@ function summary() {
 
 const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray, url: URL) => unknown][] = [
   ["GET", /^\/api\/summary$/, (_q, res) => send(res, 200, summary())],
+
+  ["GET", /^\/api\/live$/, (req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+    res.write(`retry: 1000\ndata: ${BOOT_ID}\n\n`);
+    liveClients.add(res);
+    const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+    req.on("close", () => { clearInterval(ping); liveClients.delete(res); });
+  }],
+
+  ["GET", /^\/api\/live$/, (req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+    res.write(`retry: 1000\ndata: ${BOOT_ID}\n\n`);
+    liveClients.add(res);
+    const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+    req.on("close", () => { clearInterval(ping); liveClients.delete(res); });
+  }],
 
   ["POST", /^\/api\/import$/, async (_q, res) => {
     if (importing) return send(res, 409, { error: "An import is already running." });

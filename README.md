@@ -19,7 +19,7 @@ npm run build    # static output in dist/
 
 ```bash
 npm --prefix studio install   # once
-npm run studio                # http://127.0.0.1:4317
+npm run studio                # http://127.0.0.1:4317 (auto-restarts on code changes; the tab reloads itself)
 ```
 
 Put reference stills in `~/OpenPresets-data/refs/<film-name>/` and click **Import from folder**.

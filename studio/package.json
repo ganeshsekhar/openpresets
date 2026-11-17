@@ -6,8 +6,9 @@
   "description": "OpenPresets Studio: local admin dashboard (never deployed).",
   "license": "MIT",
   "scripts": {
-    "start": "node server/main.ts",
-    "test": "vitest run --root ."
+    "start": "node --watch-path=./server --watch-path=../src server/main.ts",
+    "test": "vitest run --root .",
+    "start:once": "node server/main.ts"
   },
   "engines": {
     "node": ">=24"

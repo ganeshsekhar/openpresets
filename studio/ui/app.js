@@ -777,3 +777,14 @@ document.addEventListener("click", async (e) => {
     toast(err.message);
   }
 });
+
+// Live reload: reload when Studio restarts with new code or its screens change.
+(() => {
+  let boot = null;
+  const es = new EventSource("/api/live");
+  es.onmessage = (e) => {
+    if (boot && e.data !== boot) location.reload();
+    boot = e.data;
+  };
+  es.addEventListener("reload", () => location.reload());
+})();
