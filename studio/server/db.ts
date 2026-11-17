@@ -61,7 +61,7 @@ const MIGRATIONS = [
    );
    CREATE TABLE batches (
      id INTEGER PRIMARY KEY,
-     status TEXT NOT NULL,                 -- running | review | closed
+     status TEXT NOT NULL,                 -- running | review | closed | cancelled
      created_at TEXT NOT NULL DEFAULT (datetime('now')),
      closed_at TEXT
    );
@@ -75,7 +75,7 @@ const MIGRATIONS = [
      tags_json TEXT NOT NULL DEFAULT '[]',
      settings_json TEXT NOT NULL,
      version INTEGER NOT NULL DEFAULT 1,
-     status TEXT NOT NULL DEFAULT 'draft', -- draft | approved | rejected
+     status TEXT NOT NULL DEFAULT 'draft', -- draft | approved | rejected | cancelled
      reject_reason TEXT,
      lr_verified INTEGER NOT NULL DEFAULT 0,
      fit_loss REAL,

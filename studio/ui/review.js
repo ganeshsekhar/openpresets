@@ -278,8 +278,13 @@ function render(root, args) {
           <button type="button" data-ba="after" aria-pressed="${!R.before}">After</button>
           <button type="button" data-ba="before" aria-pressed="${R.before}">Before</button>
         </div>
-        <span class="pill ${status}">${status === "draft" ? "To review" : status === "approved" ? "Approved" : "Rejected"}</span>
+        <div class="decide">
+          ${status !== "draft" ? `<span class="pill ${status}">${status === "approved" ? "Approved" : "Rejected"}</span><button class="link" type="button" data-status="draft">Undo</button>` : ""}
+          <button class="btn sm" type="button" data-status="rejected" ${status === "rejected" ? "disabled" : ""}>Reject</button>
+          <button class="btn sm primary" type="button" data-status="approved" ${status === "approved" ? "disabled" : ""}>${status === "approved" ? "Approved ✓" : "Approve"}</button>
+        </div>
       </header>
+      ${draft.nameIssues?.length ? `<p class="issue">Name contains “${esc(draft.nameIssues[0])}” (film, credit or brand). Rename it under More before approving.</p>` : ""}
       <div class="rv-grid" id="rv-grid">${gridTilesHTML()}
       </div>
       <figure class="rv-zoom" id="rv-zoom" hidden>
@@ -289,18 +294,8 @@ function render(root, args) {
     </section>
 
     <aside class="rv2-side">
-      <div class="rv2-card">
-        <div class="rv2-actions">
-          <button class="btn primary" type="button" data-status="approved" ${status === "approved" ? "disabled" : ""}>${status === "approved" ? "Approved ✓" : "Approve"}</button>
-          <button class="btn" type="button" data-status="rejected" ${status === "rejected" ? "disabled" : ""}>Reject</button>
-        </div>
-        <div class="rv2-row"><span class="save-status" id="rv-save">Saved · v${draft.version}</span>
-          ${status !== "draft" ? `<button class="link" type="button" data-status="draft">Undo</button>` : ""}</div>
-        ${draft.nameIssues?.length ? `<p class="issue">Name contains “${esc(draft.nameIssues[0])}” (film, credit or brand). Rename it under More.</p>` : ""}
-      </div>
-
       <div class="rv2-card tools">
-        <div class="tools-head"><b>Adjust</b><span class="grow"></span>
+        <div class="tools-head"><b>Adjust</b><span class="save-status" id="rv-save">Saved · v${draft.version}</span><span class="grow"></span>
           <button class="link" type="button" data-reset-all title="Back to how it was when you opened this draft">Reset</button></div>
         ${SECTIONS.map(sectionHTML).join("")}
       </div>

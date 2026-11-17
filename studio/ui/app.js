@@ -74,7 +74,7 @@ function tileHTML(r, i, list) {
     <img src="/thumb/${r.sha256}.webp" alt="" loading="lazy" />
     ${r.stillNo != null ? `<span class="no">#${r.stillNo}</span>` : ""}
     <button class="x" type="button" data-exclude="${r.id}" title="${r.excluded ? "Include again" : "Exclude"}" aria-label="${r.excluded ? "Include again" : "Exclude"}">${r.excluded ? "↺" : "✕"}</button>
-    ${list === "cat" && !r.excluded ? `<button class="add-batch" type="button" data-queue-still="${r.id}">+ Batch</button>` : ""}
+    ${list === "cat" && !r.excluded ? `<button class="add-batch" type="button" data-queue-still="${r.id}" data-qref="${r.id}">+ Batch</button>` : ""}
   </div>`;
 }
 
@@ -165,6 +165,7 @@ function renderFacets() {
 }
 
 function renderCatGrid() {
+  setTimeout(syncQueueButtons, 0);
   const list = state.cat.refs;
   const grid = $("#cat-grid");
   if (!state.cat.status?.analyzed) {
@@ -187,6 +188,7 @@ function renderCatGrid() {
 }
 
 function renderLooks() {
+  setTimeout(syncQueueButtons, 0);
   const data = state.cat.looks;
   if (!data) return;
   const slider = $("#look-threshold");
@@ -196,7 +198,7 @@ function renderLooks() {
     ? data.groups
         .map(
           (g, gi) => `<section class="look"><div class="look-head">Look ${gi + 1} · ${g.members.length} stills
-            <button class="btn" type="button" style="margin-left:8px;padding:4px 10px;font-size:12px" data-queue-look="${g.members.map((m) => m.id).join(",")}">+ Add group to batch</button></div>
+            <button class="btn" type="button" style="margin-left:8px;padding:4px 10px;font-size:12px" data-queue-look="${g.members.map((m) => m.id).join(",")}" data-qlook="${g.members.map((m) => m.id).join(",")}">+ Add group to batch</button></div>
           <div class="look-row">${g.members
             .map(
               (m) => `<figure><div class="tile" data-look-ref="${m.id}"><img src="/thumb/${m.sha256}.webp" alt="" loading="lazy" />
@@ -219,8 +221,10 @@ async function loadCategorize() {
     api(`/api/refs?${qs}`),
     api("/api/films"),
     api("/api/looks"),
+    refreshQueue(),
   ]);
   Object.assign(state.cat, { status, taxonomy, refs, looks });
+  setTimeout(syncQueueButtons, 0);
   state.films = films;
   renderCatStatus();
   renderFacets();
@@ -329,7 +333,6 @@ function route() {
   if (h.startsWith("batches") || h.startsWith("review")) return location.replace(`#processing${h.includes("/") ? h.slice(h.indexOf("/")) : ""}`);
   state.route = h === "categorize" ? "categorize" : h.startsWith("processing") ? "batches" : "refs";
   state.reviewId = Number(h.split("/")[1]) || null;
-  document.body.classList.remove("rail");
   for (const v of ["refs", "categorize", "batches"]) $(`#view-${v}`).hidden = state.route !== v;
   document.querySelectorAll("[data-route]").forEach((a) =>
     a.dataset.route === state.route ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"),
@@ -517,11 +520,12 @@ async function loadBatches() {
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
-function stagesHTML(current, labels) {
-  return labels.map((l, i) => {
+function stagesHTML(stage, view, steps) {
+  return steps.map((st, i) => {
     const n = i + 1;
-    const st = n < current ? "done" : n === current ? "current" : "later";
-    return `<li class="${st}" ${st === "current" ? 'aria-current="step"' : ""}><span class="st-dot">${st === "done" ? "✓" : n}</span><span>${l}</span></li>`;
+    const cls = n < stage ? "done" : n === stage ? "current" : "later";
+    return `<li class="${cls}${n === view ? " viewing" : ""}"><button type="button" data-act="view-${st.id}" ${st.disabled ? "disabled" : ""} ${n === view ? 'aria-current="step"' : ""} title="${esc(st.title ?? "")}">
+      <span class="st-dot">${cls === "done" ? "✓" : n}</span><span>${st.label}</span></button></li>`;
   }).join("");
 }
 
@@ -538,9 +542,13 @@ function renderBatches() {
   const decided = open ? open.drafts.filter((d) => d.status !== "draft").length : 0;
 
   // Two stages: build the batch (choose stills, then draft them) → review it.
-  $("#stages").innerHTML = stagesHTML(open ? 2 : 1, [
-    running ? "Build batch · drafting…" : queued && !open ? `Build batch · ${queued}/${b.size}` : "Build batch",
-    open ? `Review · ${decided}/${open.drafts.length}` : "Review",
+  // The owner can move between them; the stage itself only advances by Run.
+  const stage = open ? 2 : 1;
+  if (!open || running) state.procView = "build";
+  const view = state.procView === "build" ? 1 : stage;
+  $("#stages").innerHTML = stagesHTML(stage, view, [
+    { id: "build", label: running ? "Build batch · drafting…" : queued && !open ? `Build batch · ${queued}/${b.size}` : "Build batch" },
+    { id: "review", label: open ? `Review · ${decided}/${open.drafts.length}` : "Review", disabled: !open, title: open ? "" : "Run a batch first" },
   ]);
 
   // Header tools: test photos (one-time setup) and history live in drawers.
@@ -558,7 +566,7 @@ function renderBatches() {
   $("#tp-update").innerHTML = updateAvailable
     ? `<button class="btn sm" type="button" data-act="download-tp" ${busy ? "disabled" : ""}>Get ${plural(tp.missingDefaults, "new photo")}${tp.retired.length ? `, retire ${tp.retired.length}` : ""}</button>`
     : "";
-  $("#closed").innerHTML = b.closed.map((c) => `<div class="hist-row"><b>Batch #${c.id}</b><span>${c.approved} approved · ${c.rejected} rejected</span><span class="muted">${new Date(c.closedAt + "Z").toLocaleDateString()}</span></div>`).join("");
+  $("#closed").innerHTML = b.closed.map((c) => `<div class="hist-row"><b>Batch #${c.id}</b><span>${c.status === "cancelled" ? "Cancelled · " : ""}${c.approved ?? 0} approved · ${c.rejected ?? 0} rejected</span><span class="muted">${new Date(c.closedAt + "Z").toLocaleDateString()}</span></div>`).join("");
 
   const job = $("#batch-job");
   if (!busy && b.lastBatch?.errors.length) { job.hidden = false; job.textContent = `Last run: ${b.lastBatch.drafts} drafts, ${b.lastBatch.errors.length} failed (${b.lastBatch.errors[0]}).`; }
@@ -566,11 +574,52 @@ function renderBatches() {
 
   // ---- Stage 1 + 2: build the batch. Selection and Run share one card, so
   // what you picked stays in view while you run it.
-  // Reviewing needs room: the app sidebar folds to a slim rail.
-  document.body.classList.toggle("rail", !!open && state.route === "batches");
-  $("#stage-build").hidden = !!open;
-  $("#stage-review").hidden = !open;
-  if (!open) {
+  $("#stage-build").hidden = view !== 1;
+  $("#stage-review").hidden = view !== 2;
+  if (view === 1 && open) {
+    $("#stage-build").classList.remove("is-empty");
+    // Looking back at a batch that is in review: picks are locked.
+    const und = open.drafts.length - decided;
+    $("#build-title").textContent = `Batch #${open.id} picks`;
+    $("#build-note").textContent = `In review. To change these picks, cancel the batch: ${und ? `${plural(und, "undecided still")} go${und === 1 ? "es" : ""} back here` : "nothing is undecided"}.`;
+    $("#build-meter").style.width = "100%";
+    $("#build-tools").innerHTML = "";
+    $("#queue").innerHTML = `<div class="queue-grid">${open.drafts.map((d) => `<div class="q-card ${d.status === "draft" ? "" : "waiting"}">
+        <div class="q-img" style="--n:${Math.min(3, d.refs.length)}">${d.refs.slice(0, 3).map((r) => `<img src="/thumb/${r.sha256}.webp" alt="" loading="lazy" />`).join("")}</div>
+        <span class="q-kind">${d.status === "draft" ? "To review" : d.status === "approved" ? "Approved" : "Rejected"}</span>
+        <div class="q-meta"><b>${esc(d.name)}</b><span class="muted">${esc(d.refs[0]?.title ?? "")}</span></div></div>`).join("")}</div>`;
+    $("#build-bar").innerHTML = `<button class="btn danger-ghost" type="button" data-act="cancel-batch">Cancel batch…</button>
+      <span class="grow"></span><button class="btn primary" type="button" data-act="view-review">Next: Review →</button>`;
+  } else if (view === 1 && !queued && !running) {
+    // Empty state: one clear way in, plus what happens next.
+    $("#stage-build").classList.add("is-empty");
+    $("#build-title").textContent = "";
+    $("#build-note").textContent = "";
+    $("#build-tools").innerHTML = "";
+    $("#build-meter").style.width = "0";
+    $("#queue").innerHTML = `<div class="empty-start">
+        <svg class="es-art" viewBox="0 0 120 80" aria-hidden="true">
+          <rect x="8" y="18" width="52" height="36" rx="4" transform="rotate(-8 34 36)" class="es-f1"/>
+          <rect x="34" y="14" width="52" height="36" rx="4" class="es-f2"/>
+          <rect x="60" y="20" width="52" height="36" rx="4" transform="rotate(8 86 38)" class="es-f3"/>
+          <path d="M44 42l9-10 7 7 5-5 10 8" class="es-line"/><circle cx="73" cy="25" r="3" class="es-sun"/>
+        </svg>
+        <h2>Start your next batch</h2>
+        <p class="muted">Pick up to ${b.size} stills or look groups. Each becomes a draft preset you review, tweak and approve.</p>
+        <div class="es-actions">
+          <button class="btn primary" type="button" data-act="suggest" ${!photosReady || busy ? "disabled" : ""} title="${photosReady ? "Picks varied stills and look groups you haven't used yet, clearest first" : "Set up test photos first"}">Suggest ${b.size} for me</button>
+          <a class="btn" href="#categorize">Pick in Categorize</a>
+        </div>
+        ${!photosReady ? `<p class="small warn-text">Set up the test photos above first.</p>` : ""}
+        <ol class="es-steps">
+          <li><b>1</b><span><strong>Pick</strong> stills or whole look groups</span></li>
+          <li><b>2</b><span><strong>Run</strong> to draft them, about 2 s each, free</span></li>
+          <li><b>3</b><span><strong>Review</strong> on test photos, then approve</span></li>
+        </ol>
+      </div>`;
+    $("#build-bar").innerHTML = "";
+  } else if (view === 1) {
+    $("#stage-build").classList.remove("is-empty");
     const m = running ? /(\d+) of (\d+)/.exec(b.job.progress || "") : null;
     const doneN = m ? Number(m[1]) - 1 : 0;
     $("#build-title").textContent = running ? "Drafting presets" : "Next batch";
@@ -594,16 +643,17 @@ function renderBatches() {
       }).join("")}${running ? "" : Array.from({ length: left }, (_, i) => `<div class="q-slot"><span>${queued + i + 1}</span></div>`).join("")}</div>`;
     const blocker = b.blockers[0];
     $("#build-bar").innerHTML = running
-      ? `<span class="muted small">Runs locally, free. You can leave this page; it stops for your review when done.</span><span class="grow"></span><button class="btn primary" type="button" disabled>Drafting…</button>`
-      : `<span class="small ${queued ? "" : "muted"}">${queued ? `Drafts ${plural(queued, "preset")} (about ${Math.max(1, Math.round(queued * 2))} s), then stops for your review.` : blocker ? esc(blocker) : "Choose stills to start."}</span>
+      ? `<span class="muted small">Runs locally, free. You can leave this page; it stops for your review when done.</span><span class="grow"></span>
+         <button class="btn" type="button" data-act="cancel-batch" ${/stopping/i.test(b.job?.progress ?? "") ? "disabled" : ""}>Stop</button><button class="btn primary" type="button" disabled>Drafting…</button>`
+      : `${queued ? `<button class="btn ghost" type="button" data-act="clear-queue">Clear picks</button>` : ""}<span class="small ${queued ? "" : "muted"}">${queued ? `Drafts ${plural(queued, "preset")} (about ${Math.max(1, Math.round(queued * 2))} s), then stops for your review.` : blocker ? esc(blocker) : "Choose stills to start."}</span>
          <span class="grow"></span>
          <button class="btn primary" type="button" data-act="run" ${b.blockers.length || busy ? "disabled" : ""} title="${esc(blocker ?? "")}">Run batch${queued ? ` (${queued})` : ""}</button>`;
   } else {
     // ---- Stage 3: review (workspace rendered by renderOpenReview)
-    const left2 = open.drafts.length - decided;
-    $("#stage-review .stage-head").hidden = true; // the header stepper already says "Review · x/y"
-    $("#rv-title").textContent = `Review batch #${open.id}`;
-    $("#rv-note").textContent = left2 ? `${decided} of ${open.drafts.length} decided · approve, tweak or reject each draft. The next batch unlocks when all are decided.` : "All decided.";
+    $("#stage-review .stage-head").hidden = false;
+    $("#stage-review .stage-head").innerHTML = `<button class="btn sm ghost" type="button" data-act="view-build">← Back to picks</button>
+      <span class="muted small">Batch #${open.id} · ${decided} of ${open.drafts.length} decided · the next batch unlocks when all are decided</span>
+      <button class="btn sm danger-ghost" type="button" data-act="cancel-batch">Cancel batch…</button>`;
     $("#rv-meter").style.width = `${(decided / open.drafts.length) * 100}%`;
   }
 
@@ -631,7 +681,8 @@ async function pollBatchJob() {
     }
     if (state.route === "batches") await loadBatches();
     const lb = state.batch.lastBatch;
-    if (lb) toast(lb.errors.length ? `Batch: ${lb.drafts} drafts, ${lb.errors.length} failed` : `Batch ready: ${lb.drafts} drafts to review`);
+    if (lb?.cancelled) toast(`Stopped · your ${plural(state.batch.queue.length, "pick")} are still here`);
+    else if (lb) toast(lb.errors.length ? `Batch: ${lb.drafts} drafts, ${lb.errors.length} failed` : `Batch ready: ${lb.drafts} drafts to review`);
   } finally {
     batchPolling = false;
   }
@@ -675,10 +726,20 @@ document.addEventListener("click", async (e) => {
   const ql = t.closest("[data-queue-look]");
   if (qs || ql) {
     e.stopPropagation();
+    const btn = qs ?? ql;
     try {
-      const body = qs ? { kind: "still", refIds: [Number(qs.dataset.queueStill)] } : { kind: "look", refIds: ql.dataset.queueLook.split(",").map(Number) };
-      const r = await api("/api/queue", { method: "POST", body });
-      toast(`Added to the next batch (${r.queued}/10)`);
+      if (btn.dataset.qid) {
+        await api(`/api/queue/${btn.dataset.qid}`, { method: "DELETE" });
+        await refreshQueue();
+        toast(`Removed from the next batch (${state.queue.length}/10)`);
+      } else {
+        const body = qs ? { kind: "still", refIds: [Number(qs.dataset.queueStill)] } : { kind: "look", refIds: ql.dataset.queueLook.split(",").map(Number) };
+        const r = await api("/api/queue", { method: "POST", body });
+        await refreshQueue();
+        toast(`Added to the next batch (${r.queued}/10)`);
+      }
+      syncQueueButtons();
+      refreshNav();
     } catch (err) {
       toast(err.message);
     }
@@ -731,6 +792,43 @@ document.addEventListener("click", async (e) => {
   const act = e.target.closest?.("[data-act]");
   if (!act || act.disabled) return;
   const a = act.dataset.act;
+  if (a === "view-build" || a === "view-review") {
+    state.procView = a === "view-build" ? "build" : "review";
+    renderBatches();
+    if (state.procView === "review") await renderOpenReview();
+    window.scrollTo({ top: 0 });
+    return;
+  }
+  if (a === "cancel-batch") {
+    const b = state.batch;
+    try {
+      if (b.job) {
+        if (!confirm("Stop drafting? Your picks stay as they are; drafts made so far are set aside.")) return;
+        await api("/api/batch/cancel", { method: "POST" });
+        toast("Stopping after the current draft…");
+        return loadBatches();
+      }
+      const open = b.open;
+      const und = open.drafts.filter((d) => d.status === "draft").length;
+      const kept = open.drafts.length - und;
+      if (!confirm(`Cancel batch #${open.id}?\n\n${plural(und, "undecided draft")} will be set aside (kept in the log, not deleted) and their stills go back to your picks.${kept ? `\n${kept} approved or rejected stay as they are.` : ""}`)) return;
+      await flushReview();
+      const r = await api("/api/batch/cancel", { method: "POST" });
+      toast(`Batch #${open.id} cancelled · ${plural(r.returned, "still")} back in your picks`);
+      state.procView = "build";
+      state.reviewId = null;
+      history.replaceState(null, "", "#processing");
+    } catch (err) {
+      toast(err.message);
+    }
+    return loadBatches();
+  }
+  if (a === "clear-queue") {
+    if (!confirm("Remove all picks from the next batch? The stills stay in your library.")) return;
+    for (const q of state.batch.queue) await api(`/api/queue/${q.id}`, { method: "DELETE" });
+    toast("Picks cleared");
+    return loadBatches();
+  }
   if (a === "toggle-tp" || a === "toggle-history") {
     const d = $(a === "toggle-tp" ? "#tp-sec" : "#history-sec");
     d.hidden = !d.hidden;
@@ -769,9 +867,96 @@ async function refreshNav() {
     const n = await api("/api/nav");
     const set = (id, text, cls = "") => { const el = $(id); el.textContent = text; el.className = cls; };
     set("#nb-refs", n.refs ? String(n.refs) : "");
-    set("#nb-categorize", n.unclear ? `${n.unclear} unclear` : "", n.unclear ? "warn" : "");
-    set("#nb-batches", n.running ? "running" : n.toReview ? `${n.toReview} to review` : n.queued ? `${n.queued}/${n.size}` : "", n.running || n.toReview ? "hot" : "");
+    set("#nb-categorize", n.unclear ? String(n.unclear) : "", n.unclear ? "warn" : "");
+    $("#nb-categorize").title = n.unclear ? `${n.unclear} unclear stills` : "";
+    set("#nb-batches", n.running ? "…" : n.toReview ? String(n.toReview) : n.queued ? `${n.queued}/${n.size}` : "", n.running || n.toReview ? "hot" : "");
+    $("#nb-batches").title = n.running ? "Drafting" : n.toReview ? `${n.toReview} drafts to review` : n.queued ? `${n.queued} of ${n.size} chosen` : "";
   } catch {}
 }
 refreshNav();
 window.addEventListener("hashchange", refreshNav);
+
+// ---------- Sidebar collapse (remembered per browser) ----------
+(() => {
+  const btn = $("#side-toggle");
+  const apply = (collapsed) => {
+    document.body.classList.toggle("collapsed", collapsed);
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    btn.querySelector("span").textContent = collapsed ? "Expand" : "Collapse";
+    window.dispatchEvent(new Event("resize")); // let the review grid refit
+  };
+  let collapsed = false;
+  try { collapsed = localStorage.getItem("op.sideCollapsed") === "1"; } catch {}
+  apply(collapsed);
+  btn.addEventListener("click", () => {
+    collapsed = !collapsed;
+    try { localStorage.setItem("op.sideCollapsed", collapsed ? "1" : "0"); } catch {}
+    apply(collapsed);
+  });
+})();
+
+// ---------- "+ Batch" buttons reflect the queue and toggle ----------
+async function refreshQueue() {
+  try { state.queue = (await api("/api/batch")).queue; } catch { state.queue = state.queue ?? []; }
+  return state.queue;
+}
+function syncQueueButtons() {
+  const q = state.queue ?? [];
+  renderTray(q);
+  const byRef = new Map(), byLook = new Map();
+  for (const item of q) {
+    for (const id of item.refIds) byRef.set(id, item);
+    byLook.set([...item.refIds].sort((a, b) => a - b).join(","), item);
+  }
+  document.querySelectorAll("[data-qref]").forEach((b) => {
+    const item = byRef.get(Number(b.dataset.qref));
+    b.classList.toggle("on", !!item);
+    if (item) b.dataset.qid = item.id; else delete b.dataset.qid;
+    b.textContent = item ? (item.kind === "look" ? "✓ In batch (look)" : "✓ In batch") : "+ Batch";
+    b.title = item ? (item.kind === "look" ? "Part of a queued look group. Click to remove the group." : "Click to remove from the next batch") : "Add to the next batch";
+  });
+  document.querySelectorAll("[data-qlook]").forEach((b) => {
+    const key = b.dataset.qlook.split(",").map(Number).sort((x, y) => x - y).join(",");
+    const item = byLook.get(key);
+    b.classList.toggle("on", !!item);
+    if (item) b.dataset.qid = item.id; else delete b.dataset.qid;
+    b.textContent = item ? "✓ In batch · remove" : "+ Add group to batch";
+  });
+}
+
+// Sticky tray in Categorize: what's in the next batch, editable in place.
+function renderTray(q) {
+  const tray = $("#cat-tray");
+  if (!tray) return;
+  tray.hidden = !q.length;
+  if (!q.length) return;
+  const size = 10;
+  tray.innerHTML = `
+    <div class="tray-info"><b>Next batch</b><span class="muted small">${q.length} of ${size}</span>
+      <div class="tray-meter"><span style="width:${(q.length / size) * 100}%"></span></div></div>
+    <div class="tray-items">${q.map((item) => `<div class="tray-item" title="${esc(item.refs?.[0]?.title ?? "")}${item.kind === "look" ? ` · look of ${item.refs.length}` : ""}">
+        <img src="/thumb/${item.refs?.[0]?.sha256}.webp" alt="" />${item.kind === "look" ? `<span class="tray-n">${item.refs.length}</span>` : ""}
+        <button type="button" data-tray-remove="${item.id}" aria-label="Remove from batch">×</button></div>`).join("")}
+      ${Array.from({ length: Math.max(0, size - q.length) }, () => '<div class="tray-slot"></div>').join("")}</div>
+    <div class="tray-actions">
+      <button class="btn sm ghost" type="button" data-tray-clear>Clear</button>
+      <a class="btn sm primary" href="#processing">Review &amp; run →</a>
+    </div>`;
+}
+document.addEventListener("click", async (e) => {
+  const rm = e.target.closest?.("[data-tray-remove]");
+  const clear = e.target.closest?.("[data-tray-clear]");
+  if (!rm && !clear) return;
+  try {
+    if (clear) {
+      if (!confirm("Remove all picks from the next batch?")) return;
+      for (const q of state.queue ?? []) await api(`/api/queue/${q.id}`, { method: "DELETE" });
+    } else await api(`/api/queue/${rm.dataset.trayRemove}`, { method: "DELETE" });
+    await refreshQueue();
+    syncQueueButtons();
+    refreshNav();
+  } catch (err) {
+    toast(err.message);
+  }
+});

@@ -11,7 +11,7 @@ import { claudePass, PER_SHEET, unclearRefs, type ClaudeResult } from "./claude.
 import { GROUP_LABEL, GROUPS, TAXONOMY, type Group } from "./rules.ts";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { BATCH_SIZE, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
+import { BATCH_SIZE, cancelBatch, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
 import { blockedTerms, lintName } from "./names.ts";
 import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
 import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, retiredPresent, testDir } from "./testphotos.ts";
@@ -61,6 +61,7 @@ const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const db = openDb(DB_PATH);
 let importing = false;
 let job: { label: string; progress: string } | null = null;
+let stopBatch = false;
 let lastClaude: (ClaudeResult & { at: string }) | null = null;
 
 function categorizeStatus() {
@@ -364,8 +365,8 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
       ? (db.prepare("SELECT id FROM drafts WHERE batch_id = ? ORDER BY id").all(open.id) as { id: number }[]).map((d) => draftRow(d.id))
       : [];
     const closed = db.prepare(
-      `SELECT b.id, b.closed_at AS closedAt, SUM(d.status = 'approved') AS approved, SUM(d.status = 'rejected') AS rejected
-         FROM batches b JOIN drafts d ON d.batch_id = b.id WHERE b.status = 'closed' GROUP BY b.id ORDER BY b.id DESC LIMIT 10`,
+      `SELECT b.id, b.status, b.closed_at AS closedAt, SUM(d.status = 'approved') AS approved, SUM(d.status = 'rejected') AS rejected
+         FROM batches b LEFT JOIN drafts d ON d.batch_id = b.id WHERE b.status IN ('closed', 'cancelled') GROUP BY b.id ORDER BY b.id DESC LIMIT 10`,
     ).all();
     send(res, 200, {
       size: BATCH_SIZE,
@@ -397,11 +398,28 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     const blockers = runBlockers(db, DATA_DIR);
     if (blockers.length) return send(res, 400, { error: blockers[0] });
     job = { label: "Running batch", progress: "Starting…" };
-    runBatch(db, DATA_DIR, REFS_DIR, REPO_ROOT, (msg) => { if (job) job.progress = msg; })
+    stopBatch = false;
+    runBatch(db, DATA_DIR, REFS_DIR, REPO_ROOT, (msg) => { if (job) job.progress = msg; }, () => stopBatch)
       .then((r) => { lastBatch = { at: new Date().toISOString(), ...r }; })
       .catch((e) => { lastBatch = { at: new Date().toISOString(), drafts: 0, errors: [(e as Error).message] }; })
       .finally(() => { job = null; });
     send(res, 202, { started: true });
+  }],
+
+  // Stop a running batch (after the current draft) or cancel one in review.
+  ["POST", /^\/api\/batch\/cancel$/, (_q, res) => {
+    if (job?.label === "Running batch") {
+      stopBatch = true;
+      job.progress = "Stopping after this draft…";
+      return send(res, 202, { stopping: true });
+    }
+    const open = openBatch(db);
+    if (!open) return send(res, 400, { error: "No batch to cancel" });
+    try {
+      send(res, 200, cancelBatch(db, open.id));
+    } catch (e) {
+      send(res, 400, { error: (e as Error).message });
+    }
   }],
 
   // ---------- M3: drafts ----------

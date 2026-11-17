@@ -24,7 +24,7 @@ export function queueList(db: DB): QueueItem[] {
 
 /** Stills already used by a draft that wasn't rejected. */
 export function usedRefIds(db: DB): Set<number> {
-  const rows = db.prepare("SELECT ref_ids_json FROM drafts WHERE status != 'rejected'").all() as { ref_ids_json: string }[];
+  const rows = db.prepare("SELECT ref_ids_json FROM drafts WHERE status NOT IN ('rejected', 'cancelled')").all() as { ref_ids_json: string }[];
   return new Set(rows.flatMap((r) => parseIds(r.ref_ids_json)));
 }
 
@@ -82,7 +82,7 @@ export function suggest(db: DB): number {
 }
 
 export function openBatch(db: DB): { id: number; status: string } | null {
-  return (db.prepare("SELECT id, status FROM batches WHERE status != 'closed' ORDER BY id DESC LIMIT 1").get() as { id: number; status: string } | undefined) ?? null;
+  return (db.prepare("SELECT id, status FROM batches WHERE status IN ('running', 'review') ORDER BY id DESC LIMIT 1").get() as { id: number; status: string } | undefined) ?? null;
 }
 
 export function runBlockers(db: DB, dataDir: string): string[] {
@@ -110,9 +110,12 @@ function describe(tags: { grp: string; value: string }[]): string {
   return s;
 }
 
-export interface RunResult { batchId: number; drafts: number; errors: string[] }
+export interface RunResult { batchId: number; drafts: number; errors: string[]; cancelled?: boolean }
 
-export async function runBatch(db: DB, dataDir: string, refsDir: string, repoRoot: string, onProgress?: (msg: string) => void): Promise<RunResult> {
+export async function runBatch(
+  db: DB, dataDir: string, refsDir: string, repoRoot: string,
+  onProgress?: (msg: string) => void, shouldStop?: () => boolean,
+): Promise<RunResult> {
   const blockers = runBlockers(db, dataDir);
   if (blockers.length) throw new Error(blockers[0]);
   const queue = queueList(db);
@@ -120,7 +123,7 @@ export async function runBatch(db: DB, dataDir: string, refsDir: string, repoRoo
   const batchId = Number(db.prepare("INSERT INTO batches (status) VALUES ('running')").run().lastInsertRowid);
   const existing = new Set([
     ...siteNames(repoRoot).map((n) => n.toLowerCase()),
-    ...(db.prepare("SELECT name FROM drafts WHERE status != 'rejected'").all() as { name: string }[]).map((r) => r.name.toLowerCase()),
+    ...(db.prepare("SELECT name FROM drafts WHERE status NOT IN ('rejected', 'cancelled')").all() as { name: string }[]).map((r) => r.name.toLowerCase()),
   ]);
   const blocked = blockedTerms(db);
   const insertDraft = db.prepare(
@@ -130,6 +133,13 @@ export async function runBatch(db: DB, dataDir: string, refsDir: string, repoRoo
   const result: RunResult = { batchId, drafts: 0, errors: [] };
 
   for (const [i, item] of queue.entries()) {
+    if (shouldStop?.()) {
+      // Stopped by the owner: keep the picks in the queue, park what was drafted.
+      db.prepare("UPDATE drafts SET status = 'cancelled' WHERE batch_id = ?").run(batchId);
+      db.prepare("UPDATE batches SET status = 'cancelled', closed_at = datetime('now') WHERE id = ?").run(batchId);
+      logEvent(db, "batch-stopped", { batchId, drafted: result.drafts });
+      return { ...result, cancelled: true };
+    }
     onProgress?.(`Drafting ${i + 1} of ${queue.length}…`);
     try {
       const refs = item.refIds.map((id) => db.prepare("SELECT r.path, a.metrics_json FROM refs r JOIN analyses a ON a.ref_id = r.id WHERE r.id = ?").get(id) as { path: string; metrics_json: string } | undefined).filter(Boolean) as { path: string; metrics_json: string }[];
@@ -163,6 +173,30 @@ export async function runBatch(db: DB, dataDir: string, refsDir: string, repoRoo
   db.prepare("UPDATE batches SET status = ? WHERE id = ?").run(result.drafts ? "review" : "closed", batchId);
   logEvent(db, "batch-run", result);
   return result;
+}
+
+/**
+ * Cancel a batch in review. Nothing is deleted: undecided drafts become
+ * 'cancelled' (kept for the log) and their stills go back into the queue so
+ * the owner can change the picks and run again. Decided drafts keep their status.
+ */
+export function cancelBatch(db: DB, batchId: number): { returned: number } {
+  const b = db.prepare("SELECT status FROM batches WHERE id = ?").get(batchId) as { status: string } | undefined;
+  if (!b || b.status !== "review") throw new Error("Only a batch in review can be cancelled");
+  const undecided = db.prepare("SELECT kind, ref_ids_json FROM drafts WHERE batch_id = ? AND status = 'draft' ORDER BY id").all(batchId) as { kind: string; ref_ids_json: string }[];
+  const add = db.prepare("INSERT OR IGNORE INTO queue (kind, ref_ids_json) VALUES (?, ?)");
+  db.exec("BEGIN");
+  try {
+    for (const d of undecided) add.run(d.kind, d.ref_ids_json);
+    db.prepare("UPDATE drafts SET status = 'cancelled' WHERE batch_id = ? AND status = 'draft'").run(batchId);
+    db.prepare("UPDATE batches SET status = 'cancelled', closed_at = datetime('now') WHERE id = ?").run(batchId);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  logEvent(db, "batch-cancelled", { batchId, returned: undecided.length });
+  return { returned: undecided.length };
 }
 
 /** Close the batch once every draft is approved or rejected. */

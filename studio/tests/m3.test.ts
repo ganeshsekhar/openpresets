@@ -4,7 +4,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { analyzeImage, analyzeRaw } from "../server/analysis.ts";
-import { maybeCloseBatch, queueAdd, queueList, runBatch, saveSettings, suggest } from "../server/batches.ts";
+import { cancelBatch, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, saveSettings, suggest } from "../server/batches.ts";
 import { categorize } from "../server/categorize.ts";
 import { openDb } from "../server/db.ts";
 import { fitPreset } from "../server/fitter.ts";
@@ -142,5 +142,38 @@ describe("batch flow", () => {
     expect((db.prepare("SELECT version FROM drafts WHERE id = ?").get(drafts[0].id) as { version: number }).version).toBe(2);
     for (const d of drafts) db.prepare("UPDATE drafts SET status = 'approved' WHERE id = ?").run(d.id);
     expect(maybeCloseBatch(db, r.batchId)).toBe(true);
+  }, 60_000);
+
+  it("stops a running batch keeping the picks, and cancels one in review returning undecided stills", async () => {
+    const data = join(root, "data"), refs = join(data, "refs");
+    await photo(join(refs, "film-a", "01.jpg"), [230, 160, 90], [80, 40, 20], 480, 320, 0.2);
+    await photo(join(refs, "film-b", "02.jpg"), [20, 40, 80], [80, 140, 210], 480, 320, 0.5);
+    const tpDir = join(data, "test-photos");
+    for (const [i, c] of [[90, 120, 160], [150, 140, 120], [100, 150, 100]].entries()) await photo(join(tpDir, `t${i}.jpg`), c, c.map((v) => v / 3));
+    const db = openDb(":memory:");
+    await importRefs(db, refs, join(data, "thumbs"));
+    await categorize(db, refs);
+    const ids = (db.prepare("SELECT id FROM refs ORDER BY id").all() as { id: number }[]).map((r) => r.id);
+    queueAdd(db, "still", [ids[0]]);
+    queueAdd(db, "still", [ids[1]]);
+
+    // Stop after the first draft: picks stay, batch is parked, nothing open.
+    let n = 0;
+    const stopped = await runBatch(db, data, refs, root, () => n++, () => n >= 1);
+    expect(stopped.cancelled).toBe(true);
+    expect(queueList(db).length).toBe(2);
+    expect(openBatch(db)).toBeNull();
+    expect(queueAdd(db, "still", [ids[0]]).ok).toBe(false); // still queued, not "used"
+
+    // Run fully, decide one, cancel: the undecided still returns, nothing deleted.
+    const r = await runBatch(db, data, refs, root);
+    const [d1] = db.prepare("SELECT id FROM drafts WHERE batch_id = ? ORDER BY id").all(r.batchId) as { id: number }[];
+    db.prepare("UPDATE drafts SET status = 'approved' WHERE id = ?").run(d1.id);
+    expect(cancelBatch(db, r.batchId).returned).toBe(1);
+    expect(queueList(db).map((q) => q.refIds)).toEqual([[ids[1]]]);
+    expect(openBatch(db)).toBeNull();
+    const statuses = (db.prepare("SELECT status FROM drafts WHERE batch_id = ? ORDER BY id").all(r.batchId) as { status: string }[]).map((x) => x.status);
+    expect(statuses).toEqual(["approved", "cancelled"]);
+    expect(() => cancelBatch(db, r.batchId)).toThrow();
   }, 60_000);
 });
