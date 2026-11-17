@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { BATCH_SIZE, usedBy, cancelBatch, maybeCloseBatch, openBatch, queueAdd, queueList, runBatch, runBlockers, saveSettings, suggest } from "./batches.ts";
 import { blockedTerms, lintName } from "./names.ts";
 import { renderFile, SLIDERS, toLightroom, type Settings } from "./renderer.ts";
-import { downloadDefaultSet, DEFAULT_SET, importOwnPhoto, listTestPhotos, OWN_CONSENT, photoBase, retiredPresent, testDir } from "./testphotos.ts";
+import { downloadDefaultSet, DEFAULT_SET, listTestPhotos, photoBase, retiredPresent, testDir } from "./testphotos.ts";
 import { NEUTRAL_VERSION, neutralFor } from "./neutralize.ts";
 import { presetToXmp } from "../../src/xmp.ts";
 import { refineDraft } from "./refine.ts";
@@ -336,27 +336,13 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     const have = new Set(list.map((p) => p.file));
     // Stock photos carry flags from the neutral-base measurement (cached after the first time).
     const photos = await Promise.all(list.map(async (p) => ({
-      ...p, flags: p.original ? [] : await neutralFor(testDir(DATA_DIR), p.file).then((n) => n.flags).catch(() => []),
+      ...p, flags: await neutralFor(testDir(DATA_DIR), p.file).then((n) => n.flags).catch(() => []),
     })));
     send(res, 200, {
-      photos, defaults: DEFAULT_SET.length, folder: testDir(DATA_DIR), ownConsent: OWN_CONSENT,
+      photos, defaults: DEFAULT_SET.length, folder: testDir(DATA_DIR),
       missingDefaults: DEFAULT_SET.filter((d) => !have.has(d.file)).length,
       retired: retiredPresent(DATA_DIR),
     });
-  }],
-
-  // The owner's own photo, uploaded from the browser. Requires the consent tick.
-  ["POST", /^\/api\/testphotos\/own$/, async (req, res) => {
-    const { name, data, subject, consent } = await readBody(req) as { name?: string; data?: string; subject?: string; consent?: boolean };
-    if (consent !== true) return send(res, 400, { error: "Confirm the photo is yours and people in it agreed" });
-    if (!data || data.length > 40_000_000) return send(res, 400, { error: "Photo missing or larger than 30 MB" });
-    try {
-      const file = await importOwnPhoto(DATA_DIR, String(name ?? "photo"), Buffer.from(data, "base64"), String(subject ?? "").slice(0, 40));
-      logEvent(db, "own-photo-added", { file, subject, consent: OWN_CONSENT });
-      send(res, 200, { file });
-    } catch (e) {
-      send(res, 400, { error: `Could not read that image: ${(e as Error).message}` });
-    }
   }],
 
   ["POST", /^\/api\/testphotos\/default$/, async (_q, res) => {
@@ -378,7 +364,7 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     const orig = url.searchParams.get("orig") === "1";
     const p = listTestPhotos(DATA_DIR).find((x) => x.file === m[1]);
     if (!p) return send(res, 404, { error: "Not found" });
-    const out = join(RENDERS_DIR, `before-${m[1]}-${w}-${orig || p.original ? "o" : `n${NEUTRAL_VERSION}`}.jpg`);
+    const out = join(RENDERS_DIR, `before-${m[1]}-${w}-${orig ? "o" : `n${NEUTRAL_VERSION}`}.jpg`);
     if (!existsSync(out)) {
       mkdirSync(RENDERS_DIR, { recursive: true });
       writeFileSync(out, await renderFile(orig ? path : await photoBase(DATA_DIR, p), {}, w));
@@ -568,7 +554,7 @@ const routes: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: Re
     const w = Math.min(1600, Number(url.searchParams.get("w")) || 640);
     const p = listTestPhotos(DATA_DIR).find((x) => x.file === m[2]);
     if (!p) return send(res, 404, { error: "Not found" });
-    const out = join(RENDERS_DIR, `${d.hash}-${m[2]}-${w}-${p.original ? "o" : `n${NEUTRAL_VERSION}`}.jpg`);
+    const out = join(RENDERS_DIR, `${d.hash}-${m[2]}-${w}-n${NEUTRAL_VERSION}.jpg`);
     if (!existsSync(out)) {
       mkdirSync(RENDERS_DIR, { recursive: true });
       writeFileSync(out, await renderFile(await photoBase(DATA_DIR, p), d.settings as Settings, w));

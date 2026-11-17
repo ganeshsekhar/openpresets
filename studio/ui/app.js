@@ -674,28 +674,18 @@ function renderBatches() {
   }
 
   // Test photos drawer
-  const own = tp.photos.filter((p) => p.original).length;
   const flagged = tp.photos.filter((p) => p.flags?.length).length;
-  $("#tp-note").textContent = `${tp.photos.length} photos · ${own} your own${flagged ? ` · ${flagged} heavily edited` : ""}${tp.photos.filter((p) => !p.credit).length ? ` · ${tp.photos.filter((p) => !p.credit).length} missing a credit` : ""}`;
+  $("#tp-note").textContent = `${tp.photos.length} photos${flagged ? ` · ${flagged} heavily edited` : ""}${tp.photos.filter((p) => !p.credit).length ? ` · ${tp.photos.filter((p) => !p.credit).length} missing a credit` : ""}`;
   $("#tp-folder").textContent = tp.folder;
   $("#tp-folder").dataset.copy = tp.folder;
   $("#tp-row").innerHTML = tp.photos.length
     ? tp.photos.map((p) => `<figure class="tp-fig${p.flags?.length ? " flagged" : ""}">
-        <div class="tp-img" ${p.original ? "" : `data-orig="${esc(p.file)}" title="Hold to see the photo as downloaded"`}>
+        <div class="tp-img" data-orig="${esc(p.file)}" title="Hold to see the photo as downloaded">
           <img src="/testphoto/${encodeURIComponent(p.file)}?w=320" alt="" loading="lazy" />
-          <span class="tp-kind ${p.original ? "own" : ""}">${p.original ? "Your photo" : "Neutralized"}</span></div>
+          <span class="tp-kind">Neutralized</span></div>
         <figcaption>${esc(p.subject)} · ${p.credit ? esc(p.credit.author) : '<span class="warn">no credit</span>'}
           ${p.flags?.length ? `<span class="warn" title="${esc(p.flags.join(", "))}">⚠ ${esc(p.flags[0])}</span>` : ""}</figcaption></figure>`).join("")
     : "";
-  $("#tp-own").innerHTML = `<details class="own-add">
-      <summary><b>Add your own photos</b> <span class="muted small">Best base: unedited phone or camera shots, no filters. Used as they are.</span></summary>
-      <form id="own-form" class="own-form">
-        <input type="file" id="own-files" accept="image/jpeg,image/png,image/webp,image/heic" multiple required />
-        <label class="f">What is it? <input type="text" id="own-subject" maxlength="40" placeholder="e.g. Café, Portrait, Street" required /></label>
-        <label class="check small"><input type="checkbox" id="own-consent" required /> ${esc(tp.ownConsent)}</label>
-        <p class="muted small">Location, camera and date metadata are removed when the photo is added.</p>
-        <button class="btn sm primary" type="submit">Add photos</button>
-      </form></details>`;
   refreshNav();
 }
 
@@ -1019,7 +1009,7 @@ function useBarHTML(looks = false) {
     </div><span class="muted small">${u === "available" ? "Not yet turned into a preset. Add them to the next batch." : u === "used" ? "Already in a preset (in review or approved). Rejecting a draft frees its stills." : ""}</span></div>`;
 }
 
-// ---------- Test photos: hold to see the original download; add own photos ----------
+// ---------- Test photos: hold to see the original download ----------
 document.addEventListener("pointerdown", (e) => {
   const box = e.target.closest?.("[data-orig]");
   if (!box) return;
@@ -1033,26 +1023,3 @@ for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
     if (img?.dataset.neutral) { img.src = img.dataset.neutral; delete img.dataset.neutral; }
   }, true);
 }
-document.addEventListener("submit", async (e) => {
-  if (e.target.id !== "own-form") return;
-  e.preventDefault();
-  const files = [...$("#own-files").files];
-  const subject = $("#own-subject").value.trim();
-  if (!files.length || !$("#own-consent").checked) return;
-  const btn = e.target.querySelector("button");
-  btn.disabled = true;
-  try {
-    for (const [i, f] of files.entries()) {
-      btn.textContent = `Adding ${i + 1} of ${files.length}…`;
-      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
-      await api("/api/testphotos/own", { method: "POST", body: { name: f.name, data, subject: files.length > 1 ? `${subject} ${i + 1}` : subject, consent: true } });
-    }
-    toast(`Added ${files.length} photo${files.length === 1 ? "" : "s"}`);
-    await loadBatches();
-    $("#tp-sec").hidden = false;
-  } catch (err) {
-    toast(err.message);
-    btn.disabled = false;
-    btn.textContent = "Add photos";
-  }
-});

@@ -161,10 +161,8 @@ Studio's **Library** step lists every approved preset with its site state
 Studio measures each one (grey-world white balance, black/white levels,
 mid-tones, saturation) and renders a gently corrected "neutral base" that
 drafts are fitted, previewed, refined and published on. Heavy edits that
-can't be undone are flagged in the Test photos panel. The owner's own
-unedited photos ("Add your own photos": metadata stripped, ownership and
-consent confirmation stored in credits.json) are used as they are, and are
-the long-term replacement for flagged stock photos.
+can't be undone are flagged in the Test photos panel; replace those with
+better stock photos.
 
 New CSV columns: `Good For`, `Mood`, `Gallery`
 (`subject::beforePath::afterPath|…`, relative paths). `Category` holds the

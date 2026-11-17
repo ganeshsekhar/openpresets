@@ -3,7 +3,6 @@
 // photos skews the drafts. So every stock test photo gets a "neutral base":
 // measured once, then corrected towards a plain camera-like starting point
 // (grey-world white balance, black/white levels, mid-tone and saturation).
-// Owner's own unedited photos are marked original and used as they are.
 // Bases are cached in <data>/test-photos/.neutral/ and used for previews,
 // fitting, Claude refine and the published before/after images.
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -123,12 +122,11 @@ export async function neutralFor(testDir: string, file: string): Promise<Neutral
 }
 
 /**
- * Path of the image to use as the base for a test photo: the original for the
- * owner's own photos, otherwise a cached full-size neutral JPEG.
+ * Path of the image to use as the base for a test photo: a cached full-size
+ * neutral JPEG.
  */
-export async function basePath(testDir: string, file: string, original: boolean): Promise<string> {
+export async function basePath(testDir: string, file: string): Promise<string> {
   const src = join(testDir, file);
-  if (original) return src;
   const out = join(neutralDir(testDir), `${file.replace(/\.[^.]+$/, "")}.v${NEUTRAL_VERSION}.jpg`);
   if (existsSync(out) && statSync(out).mtimeMs >= statSync(src).mtimeMs) return out;
   const n = await neutralFor(testDir, file);

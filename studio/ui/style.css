@@ -602,17 +602,9 @@ body:has(#cat-tray:not([hidden])) .facets { max-height: calc(100vh - 120px); }
 .lib-card.editing .pick-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 @media (max-width: 700px) { .lib-card.editing { grid-template-columns: 1fr; } .lib-card.editing .lib-picker { grid-column: 1; grid-row: auto; border-left: 0; border-top: 1px solid var(--line); } }
 
-/* Test photos: neutral bases and own photos */
+/* Test photos: neutral bases */
 .tp-img { position: relative; cursor: default; }
 .tp-img[data-orig] { cursor: pointer; user-select: none; }
 .tp-kind { position: absolute; left: 5px; top: 5px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: #fff; background: rgb(0 0 0 / 0.55); }
-.tp-kind.own { background: var(--accent); color: var(--accent-ink); }
 .tp-fig figcaption .warn { display: block; }
 .tp-fig.flagged img { outline: 2px solid rgb(178 106 0 / 0.6); outline-offset: -2px; }
-.own-add { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
-.own-add summary { cursor: pointer; }
-.own-form { display: grid; gap: 10px; max-width: 560px; margin-top: 10px; }
-.own-form label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-.own-form input[type="text"] { font: inherit; font-size: 14px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-.own-form .btn { justify-self: start; }
-.own-form p { margin: 0; }

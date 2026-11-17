@@ -1,10 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { applyNeutral, measureRaw } from "../server/neutralize.ts";
-import { importOwnPhoto, listTestPhotos } from "../server/testphotos.ts";
 
 /** A gradient "scene" with a warm cast and lifted (faded) blacks, like a graded stock photo. */
 function gradedScene(w = 120, h = 80, cast: [number, number, number] = [1.15, 1, 0.8], lift = 45) {
@@ -45,22 +40,3 @@ describe("neutral base", () => {
   });
 });
 
-describe("own photos", () => {
-  let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "op-own-")); });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
-
-  it("strips metadata, marks the photo original and stores the consent", async () => {
-    const input = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#884422" } })
-      .jpeg().withMetadata({ exif: { IFD0: { Make: "PhoneCo", Model: "X1" } } }).toBuffer();
-    expect((await sharp(input).metadata()).exif).toBeTruthy();
-    const file = await importOwnPhoto(dir, "IMG_0001.JPG", input, "Café");
-    expect(file).toBe("own-caf.jpg");
-    const meta = await sharp(join(dir, "test-photos", file)).metadata();
-    expect(meta.exif).toBeUndefined();
-    const p = listTestPhotos(dir).find((x) => x.file === file)!;
-    expect(p.original).toBe(true);
-    const credits = JSON.parse(readFileSync(join(dir, "test-photos", "credits.json"), "utf8"));
-    expect(credits[file].consent.statement).toMatch(/took this photo myself/);
-  });
-});
