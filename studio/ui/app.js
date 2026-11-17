@@ -517,6 +517,7 @@ function renderBatches() {
   const run = $("#run-batch");
   run.disabled = !!b.blockers.length || !!b.job;
   run.textContent = b.job ? "Running…" : `Run batch (${b.queue.length})`;
+  run.title = b.blockers[0] ?? "";
   $("#batch-blockers").innerHTML = b.blockers.map((x) => `<div class="blocker">${esc(x)}</div>`).join("");
   const job = $("#batch-job");
   if (b.job) { job.hidden = false; job.textContent = `${b.job.label}… ${b.job.progress || ""}`; }
