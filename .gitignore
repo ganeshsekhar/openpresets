@@ -7,3 +7,9 @@ references/
 reference/
 refs/
 *.reference.*
+
+# Local-only leftovers (root folders, never published)
+/.claude/
+/concepts/
+/openpresets/
+/screenshots/
